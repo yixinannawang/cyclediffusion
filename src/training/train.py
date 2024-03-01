@@ -1,11 +1,12 @@
 from multiprocessing import process
 from src.data_preparation.hico_dataset import HICO, split_dataset
-from src.model.pix2struct_model import processor, model
-from src.training.train_utils import collator
+from models.pretrained.pix2struct import processor, model
+from src.training.training_utils import collator
 from torch.utils.data import DataLoader
-from sklearn.model_selection import train_test_split
 from transformers import AdamW
 import torch
+from tqdm import tqdm
+
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import os
@@ -28,11 +29,10 @@ def save_checkpoint(model, epoch, optimizer, file_path):
 # Training loop and setup
 if __name__ == "__main__":
     full_train_dataset = HICO(split='train')
-
     full_train_indices = list(range(len(full_train_dataset)))
 
     # Split indices for training and validation
-    train_indices, val_indices = train_test_split(full_train_indices, test_size=0.2, random_state=42)
+    train_indices, val_indices = split_dataset(full_train_indices, val_size=0.2)
 
     # Create dataset instances for training and validation
     train_dataset = HICO(split='train', indices=train_indices)
@@ -53,12 +53,11 @@ if __name__ == "__main__":
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.5, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
 
-    model.train()
     # freeze all layers except last and langauge output layer
     for name, param in model.named_parameters():
         param.requires_grad = False
@@ -72,8 +71,10 @@ if __name__ == "__main__":
     for epoch in range(EPOCHS):
         try:
             print("Epoch:", epoch)
+            model.train()  # Set the model back to training mode
             total_loss = 0
-            for idx, batch in enumerate(train_dataloader):
+            train_progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc=f"Epoch {epoch} Training")
+            for idx, batch in train_progress_bar:
                 labels = batch.pop("labels").to(device)
                 flattened_patches = batch.pop("flattened_patches").to(device)
                 attention_mask = batch.pop("attention_mask").to(device)
@@ -86,6 +87,8 @@ if __name__ == "__main__":
                 
 
                 total_loss += loss.item()
+                train_progress_bar.set_description(f"Epoch {epoch} Training Loss: {loss.item():.4f}")
+                train_progress_bar.refresh()
 
             # Compute average loss for the epoch
             avg_train_loss = total_loss / len(train_dataloader)
@@ -94,9 +97,11 @@ if __name__ == "__main__":
 
             # Validation step
             model.eval()
+            val_progress_bar = tqdm(enumerate(val_dataloader), total=len(val_dataloader), desc=f"Epoch {epoch} Validation")
+
             with torch.no_grad():
                 total_val_loss = 0
-                for batch in val_dataloader:  # TODO: create the validation data split
+                for idx, batch in val_progress_bar:
                     labels = batch.pop("labels").to(device)
                     flattened_patches = batch.pop("flattened_patches").to(device)
                     attention_mask = batch.pop("attention_mask").to(device)
@@ -104,6 +109,8 @@ if __name__ == "__main__":
                     outputs = model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss
                     total_val_loss += loss.item()
+                    val_progress_bar.set_description(f"Epoch {epoch} Validation Loss: {loss.item():.4f}")
+                    val_progress_bar.refresh()
 
                 avg_val_loss = total_val_loss / len(val_dataloader)
                 print(f"Validation Loss: {avg_val_loss}")
@@ -124,7 +131,7 @@ if __name__ == "__main__":
                 print("Early stopping triggered")
                 break  # Exit the training loop
 
-            model.train()  # Set the model back to training mode
+            
         except Exception as e:
             print(f"Error during training: {e}")
             # Optionally log the error details somewhere

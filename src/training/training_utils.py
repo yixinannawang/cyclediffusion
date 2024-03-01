@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from src.model.pix2struct_model import processor
+from models.pretrained.pix2struct import processor
 
 # collator function
 def collator(batch):

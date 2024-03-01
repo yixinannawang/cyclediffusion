@@ -5,28 +5,29 @@ import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
-from src.model.pix2struct_model import processor
+from models.pretrained.pix2struct import processor
 
-# HICO dataset class definition
-PATH_TO_MAT = '/content/anno_processed.mat'
-PATH_TO_ACTIONS = '/content/anno_list_action.csv'
+
 MAX_PATCHES = 1024
 class HICO(Dataset):
     'Creates dataset of HICO images and annotations (either train or test)'
 
     def __init__(self, split,indices=None):
+
         'Initialization'
         # self.transform = transform
         self.processor = processor
         self.split = split
 
-        self.mat = scipy.io.loadmat(PATH_TO_MAT)
-        self.list_action = pd.read_csv(PATH_TO_ACTIONS, encoding = "ISO-8859-1")
+        self.mat = scipy.io.loadmat(os.path.join(os.getcwd(), 'data', 'hico', 'anno_processed.mat'))
+        self.list_action = pd.read_csv(os.path.join(os.getcwd(), 'data', 'hico', 'anno_list_action.csv'), encoding = "ISO-8859-1")
 
         if split == 'train' or split == 'val':
-            self.fnames = sorted(glob.glob(os.path.join('data', 'hico', 'images', 'train2015', '*.jpg')))
+            self.fnames = sorted(glob.glob(os.path.join(os.getcwd(), 'data', 'hico', 'images', 'train', '*.jpg')))
+            
         elif split == 'test':
-            self.fnames = sorted(glob.glob(os.path.join('data', 'hico', 'images', 'test2015', '*.jpg')))
+            self.fnames = sorted(glob.glob(os.path.join(os.getcwd(), 'data', 'hico', 'images', 'test', '*.jpg')))
+     
 
         if indices is not None:
             self.fnames = [self.fnames[i] for i in indices]
@@ -97,7 +98,6 @@ class HICO(Dataset):
 
     
 # split_dataset function
-# Split the dataset
 def split_dataset(dataset, val_size):
   indices = list(range(len(dataset)))
   train_indices, val_indices = train_test_split(indices, test_size=val_size, random_state=42)

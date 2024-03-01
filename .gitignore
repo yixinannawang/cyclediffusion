@@ -39,7 +39,7 @@ __pycache__/
 
 # Models
 *.h5
-*.pth
+*.pt
 
 # Logs
 *.log
