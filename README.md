@@ -1,0 +1,1 @@
+export PYTHONPATH="${PYTHONPATH}:/Users/mariopenglee/Documents/GitHub/cyclediffusion"

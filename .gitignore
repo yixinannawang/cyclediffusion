@@ -49,3 +49,5 @@ venv/
 
 # data
 data/
+Archive.zip
+*.0

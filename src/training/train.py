@@ -11,8 +11,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import os
 
-
-
 CHECKPOINT_PATH = "checkpoints"
 os.makedirs(CHECKPOINT_PATH, exist_ok=True)
 
@@ -62,8 +60,8 @@ if __name__ == "__main__":
     for name, param in model.named_parameters():
         param.requires_grad = False
 
-    unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
-
+    # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
+    unfreeze_layers = ['decoder.lm_head']
     for name, param in model.named_parameters():
         if any(layer in name for layer in unfreeze_layers):
             param.requires_grad = True
