@@ -23,6 +23,15 @@ def save_checkpoint(model, epoch, optimizer, file_path):
     }, file_path)
 
 
+# Load checkpoint
+def load_checkpoint(model, optimizer, file_path):
+    checkpoint = torch.load(file_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return model, optimizer, checkpoint['epoch']
+
+
+
 
 # Training loop and setup
 if __name__ == "__main__":
@@ -50,22 +59,24 @@ if __name__ == "__main__":
     patience = 10  # Number of epochs to wait for improvement before stopping
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if os.path.exists(os.path.join(CHECKPOINT_PATH, "best_model.pt")):
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
+        print(f"Resuming training from epoch {start_epoch}")
+    else:
+        start_epoch = 0
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
+        # freeze all layers except last and langauge output layer
+        for name, param in model.named_parameters():
+            param.requires_grad = False
+
+        # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
+        unfreeze_layers = ['decoder.lm_head']
+        for name, param in model.named_parameters():
+            if any(layer in name for layer in unfreeze_layers):
+                param.requires_grad = True
     model.to(device)
-
-    # freeze all layers except last and langauge output layer
-    for name, param in model.named_parameters():
-        param.requires_grad = False
-
-    # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
-    unfreeze_layers = ['decoder.lm_head']
-    for name, param in model.named_parameters():
-        if any(layer in name for layer in unfreeze_layers):
-            param.requires_grad = True
-
     for epoch in range(EPOCHS):
         try:
             print("Epoch:", epoch)

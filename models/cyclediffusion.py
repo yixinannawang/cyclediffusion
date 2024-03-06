@@ -74,8 +74,14 @@ class CycleDiffusionModel(nn.Module):
         self.diffuser = Diffuser(stable_diffusion_params)
 
     def forward(self, caption):
+        print("model forward")
         intermediate_representation = self.diffuser(caption)
-        reconstructed_caption = self.captioner(intermediate_representation)
+        encoding = self.captioner.processor(image=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
+        print("encoding", encoding)
+        flattened_patches = encoding["flattened_patches"].clone().to(self.captioner.device)
+        attention_mask = encoding["attention_mask"].clone().to(self.captioner.device)
+        labels = encoding["labels"].clone().to(self.captioner.device)
+        reconstructed_caption = self.captioner.model(**encoding, flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
         return reconstructed_caption
 
     def train(self, mode=True):
