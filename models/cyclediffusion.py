@@ -82,16 +82,14 @@ class CycleDiffusionModel(nn.Module):
         if self.verbose:
             print("model forward")
             print("caption", caption)
-        
-        # intermediate_representation = self.diffuser.pipe(caption).images[0]
-        # save the image for debugging
-        # intermediate_representation.save("intermediate_representation.png")
-        # encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
-
-        # load the image for debugging
-        intermediate_representation = Image.open("intermediate_representation.png")
-        caption ="a drawing of a cartoon character with a boxing glove"
-        encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024, text=caption)
+        # real image generation by diffusing the caption
+        intermediate_representation = self.diffuser.pipe(caption).images[0]
+        intermediate_representation.save("intermediate_representation.png")
+        # hard coded for debugging
+        # intermediate_representation = Image.open("intermediate_representation.png")
+        # caption ="a drawing of a cartoon character with a boxing glove"
+            
+        encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
         # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
         flattened_patches = encoding["flattened_patches"].to(self.captioner.device)
         attention_mask = encoding["attention_mask"].to(self.captioner.device)
@@ -108,7 +106,7 @@ class CycleDiffusionModel(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        self.captioner.train(mode)
+        self.captioner.train(False)
         self.diffuser.train(mode)
         return self
     

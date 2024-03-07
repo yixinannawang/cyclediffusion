@@ -31,7 +31,7 @@ def train_cyclediff(model, optimizer, device, epochs=5):
 
 # Example usage
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CycleDiffusionModel(verbose=True).to(device)
+model = CycleDiffusionModel(verbose=False).to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 
