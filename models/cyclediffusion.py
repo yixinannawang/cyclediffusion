@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch
 from transformers import AutoProcessor, Pix2StructForConditionalGeneration
 from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
+from PIL import Image
 # from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 # Initialize processor and model
 class Captioner(nn.Module):
@@ -68,20 +69,41 @@ class Diffuser(nn.Module):
 class CycleDiffusionModel(nn.Module):
     def __init__(self, 
                  pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base",
-                 stable_diffusion_params = "stabilityai/stable-diffusion-2-base"):
+                 #stable_diffusion_params = "stabilityai/stable-diffusion-2-base"
+                    stable_diffusion_params = "OFA-Sys/small-stable-diffusion-v0",
+                    verbose = False
+                 ):
         super(CycleDiffusionModel, self).__init__()
         self.captioner = Captioner(pix2struct_pretrained_model_name)
         self.diffuser = Diffuser(stable_diffusion_params)
+        self.verbose = verbose
 
     def forward(self, caption):
-        print("model forward")
-        intermediate_representation = self.diffuser(caption)
-        encoding = self.captioner.processor(image=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
-        print("encoding", encoding)
-        flattened_patches = encoding["flattened_patches"].clone().to(self.captioner.device)
-        attention_mask = encoding["attention_mask"].clone().to(self.captioner.device)
-        labels = encoding["labels"].clone().to(self.captioner.device)
-        reconstructed_caption = self.captioner.model(**encoding, flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
+        if self.verbose:
+            print("model forward")
+            print("caption", caption)
+        
+        # intermediate_representation = self.diffuser.pipe(caption).images[0]
+        # save the image for debugging
+        # intermediate_representation.save("intermediate_representation.png")
+        # encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
+
+        # load the image for debugging
+        intermediate_representation = Image.open("intermediate_representation.png")
+        caption ="a drawing of a cartoon character with a boxing glove"
+        encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024, text=caption)
+        # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
+        flattened_patches = encoding["flattened_patches"].to(self.captioner.device)
+        attention_mask = encoding["attention_mask"].to(self.captioner.device)
+        labels = self.captioner.processor(text=caption, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.captioner.device)
+        if self.verbose:
+            print("flattened_patches", flattened_patches.shape)
+            print("attention_mask", attention_mask.shape)
+            print("labels", labels.shape)
+        reconstructed_caption = self.captioner.model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
+        if self.verbose:
+            generated_ids = self.captioner.model.generate(flattened_patches=flattened_patches, attention_mask=attention_mask, max_length=48)
+            print("decoded", self.captioner.processor.batch_decode(generated_ids, skip_special_tokens=True))
         return reconstructed_caption
 
     def train(self, mode=True):

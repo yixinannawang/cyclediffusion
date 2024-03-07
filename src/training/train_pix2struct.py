@@ -60,24 +60,25 @@ if __name__ == "__main__":
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    start_epoch = 0
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
+    # freeze all layers except last and langauge output layer
+    for name, param in model.named_parameters():
+        param.requires_grad = False
+
+    # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
+    unfreeze_layers = ['decoder.lm_head']
+    for name, param in model.named_parameters():
+        if any(layer in name for layer in unfreeze_layers):
+            param.requires_grad = True
+    
+    # Load checkpoint if available
     if os.path.exists(os.path.join(CHECKPOINT_PATH, "best_model.pt")):
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
         print(f"Resuming training from epoch {start_epoch}")
-    else:
-        start_epoch = 0
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
-        # freeze all layers except last and langauge output layer
-        for name, param in model.named_parameters():
-            param.requires_grad = False
-
-        # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
-        unfreeze_layers = ['decoder.lm_head']
-        for name, param in model.named_parameters():
-            if any(layer in name for layer in unfreeze_layers):
-                param.requires_grad = True
     model.to(device)
-    for epoch in range(EPOCHS):
+    for epoch in range(start_epoch, EPOCHS):
         try:
             print("Epoch:", epoch)
             model.train()  # Set the model back to training mode
@@ -93,6 +94,7 @@ if __name__ == "__main__":
                 loss = outputs.loss
                 loss.backward()
                 optimizer.step()
+
                 
 
                 total_loss += loss.item()

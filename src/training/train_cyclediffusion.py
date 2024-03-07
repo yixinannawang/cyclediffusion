@@ -16,6 +16,7 @@ def train_cyclediff(model, optimizer, device, epochs=5):
             optimizer.zero_grad()
             outputs = model(captions)
             loss = outputs.loss
+            print(f"Loss: {loss.item()}")
             # Backward pass
             loss.backward()
             # Update model parameters
@@ -30,7 +31,7 @@ def train_cyclediff(model, optimizer, device, epochs=5):
 
 # Example usage
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CycleDiffusionModel().to(device)
+model = CycleDiffusionModel(verbose=True).to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 
