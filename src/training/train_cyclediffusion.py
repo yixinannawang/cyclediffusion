@@ -4,12 +4,16 @@ import torch
 import tqdm 
 from models.cyclediffusion import CycleDiffusionModel
 from src.data_preparation.captions_dataset import ds_train
+from torch.utils.data import DataLoader
+
+train_dataloader = DataLoader(ds_train, batch_size=4, shuffle=True)
 def train_cyclediff(model, optimizer, device, epochs=5):
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
-        train_progress = tqdm.tqdm(enumerate(ds_train), total=len(ds_train))
-        for batch_idx, data in train_progress:
+        train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(ds_train))
+        for idx, batch in train_dataloader:
+            data = batch
             captions = data["text"]
             if device == "cpu":
                 captions = captions.float()

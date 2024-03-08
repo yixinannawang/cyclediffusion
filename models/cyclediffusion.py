@@ -78,22 +78,24 @@ class CycleDiffusionModel(nn.Module):
         self.diffuser = Diffuser(stable_diffusion_params)
         self.verbose = verbose
 
-    def forward(self, caption):
+    def forward(self, captions):
         if self.verbose:
             print("model forward")
-            print("caption", caption)
+            print("caption", captions)
+        print(captions)
         # real image generation by diffusing the caption
-        intermediate_representation = self.diffuser.pipe(caption).images[0]
-        intermediate_representation.save("intermediate_representation.png")
+        intermediate_representations = self.diffuser.pipe(captions).images
+        for i, img in enumerate(intermediate_representations):
+            img.save(f"intermediate_representation_{i}.png")
         # hard coded for debugging
         # intermediate_representation = Image.open("intermediate_representation.png")
         # caption ="a drawing of a cartoon character with a boxing glove"
             
-        encoding = self.captioner.processor(images=intermediate_representation, return_tensors="pt", add_special_tokens=True, max_patches=1024)
+        encoding = self.captioner.processor(images=intermediate_representations, return_tensors="pt", add_special_tokens=True, max_patches=1024)
         # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
         flattened_patches = encoding["flattened_patches"].to(self.captioner.device)
         attention_mask = encoding["attention_mask"].to(self.captioner.device)
-        labels = self.captioner.processor(text=caption, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.captioner.device)
+        labels = self.captioner.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.captioner.device)
         if self.verbose:
             print("flattened_patches", flattened_patches.shape)
             print("attention_mask", attention_mask.shape)
