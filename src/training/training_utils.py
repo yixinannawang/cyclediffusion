@@ -19,3 +19,11 @@ def collator(batch):
   new_batch["attention_mask"] = torch.stack(new_batch["attention_mask"])
 
   return new_batch
+
+def cycle_collator(batch):
+  new_batch = {"text":[]}
+  texts = [item["text"] for item in batch]
+
+  new_batch["text"] = texts
+
+  return new_batch  
