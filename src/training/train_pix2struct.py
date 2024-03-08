@@ -34,7 +34,7 @@ def load_checkpoint(model, optimizer, file_path):
 
 
 # Training loop and setup
-if __name__ == "__main__":
+def train_pix2struct(gpuid):
     full_train_dataset = HICO(split='train')
     full_train_indices = list(range(len(full_train_dataset)))
 
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     patience = 10  # Number of epochs to wait for improvement before stopping
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(f"cuda:{gpuid}" if torch.cuda.is_available() else "cpu")
     start_epoch = 0
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
@@ -151,3 +151,11 @@ if __name__ == "__main__":
     writer.close()
 
 
+if __name__ == "__main__":
+    train_pix2struct(0)
+    # p = process(target=train_pix2struct, args=(0,))
+    # p.start()
+    # p.join()
+    # p.terminate()
+    # p.close()
+    # p.join()

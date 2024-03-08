@@ -40,8 +40,8 @@ class Diffuser(nn.Module):
         super(Diffuser, self).__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
-        self.pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=self.scheduler, torch_dtype= torch.float32).to(self.device) # change to torch.float16 for memory efficiency
-        # self.pipe.enable_xformers_memory_efficient_attention(attention_op=MemoryEfficientAttentionFlashAttentionOp)
+        self.pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=self.scheduler).to(self.device) # change to torch.float16 for memory efficiency
+        self.pipe.enable_xformers_memory_efficient_attention()
         
 
     def forward(self, caption):
