@@ -101,7 +101,7 @@ if __name__ == "__main__":
     gpuid = int(sys.argv[1])
     # Example usage
     device = torch.device(f"cuda:{gpuid}" if torch.cuda.is_available() else "cpu")
-    model = CycleDiffusionModel(verbose=False).to(device)
+    model = CycleDiffusionModel(verbose=False, device=device).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     train_dataloader = DataLoader(ds_train, batch_size=4, shuffle=True, collate_fn=cycle_collator)
     val_dataloader = DataLoader(ds_test, batch_size=4, shuffle=True, collate_fn=cycle_collator)

@@ -70,10 +70,12 @@ class CycleDiffusionModel(nn.Module):
                  pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base",
                  #stable_diffusion_params = "stabilityai/stable-diffusion-2-base"
                     stable_diffusion_params = "OFA-Sys/small-stable-diffusion-v0",
-                    verbose = False
+                    verbose = False,
+                    device = torch.device("cuda:0")
                  ):
         super(CycleDiffusionModel, self).__init__()
         self.captioner = Captioner(pix2struct_pretrained_model_name)
+        self.device = device
         self.diffuser = Diffuser(stable_diffusion_params)
         self.verbose = verbose
 
@@ -92,8 +94,8 @@ class CycleDiffusionModel(nn.Module):
             
         encoding = self.captioner.processor(images=intermediate_representations, return_tensors="pt", add_special_tokens=True, max_patches=1024)
         # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
-        flattened_patches = encoding["flattened_patches"].to(self.captioner.device)
-        attention_mask = encoding["attention_mask"].to(self.captioner.device)
+        flattened_patches = encoding["flattened_patches"].to(self.device)
+        attention_mask = encoding["attention_mask"].to(self.device)
         labels = self.captioner.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.captioner.device)
         if self.verbose:
             print("flattened_patches", flattened_patches.shape)
@@ -121,6 +123,7 @@ class CycleDiffusionModel(nn.Module):
         super().to(*args, **kwargs)
         self.captioner.to(*args, **kwargs)
         self.diffuser.to(*args, **kwargs)
+        self.device = args[0]
         return self
 
 
