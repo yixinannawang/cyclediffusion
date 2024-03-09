@@ -9,8 +9,7 @@ from PIL import Image
 class Captioner(nn.Module):
     def __init__(self, pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base"):
         super(Captioner, self).__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name).to(self.device)
+        self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(pix2struct_pretrained_model_name)
 
     def forward(self, flattened_patches, attention_mask):
@@ -38,10 +37,9 @@ class Captioner(nn.Module):
 class Diffuser(nn.Module):
     def __init__(self, model_id = "stabilityai/stable-diffusion-2-base"):
         super(Diffuser, self).__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
-        self.pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=self.scheduler).to(self.device) # change to torch.float16 for memory efficiency
-        self.pipe.enable_xformers_memory_efficient_attention()
+        self.pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=self.scheduler)
+        
         
 
     def forward(self, caption):
@@ -62,6 +60,7 @@ class Diffuser(nn.Module):
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.pipe.to(*args, **kwargs)
+        self.pipe.enable_xformers_memory_efficient_attention()
         return self
 
 
