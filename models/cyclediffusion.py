@@ -18,10 +18,83 @@ class Captioner(nn.Module):
         super(Captioner, self).__init__()
         self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(pix2struct_pretrained_model_name)
+        self.device = torch.device("cuda:0")
 
-    def forward(self, flattened_patches, attention_mask):
-        print("captioner forward")
-        model_outputs = self.model(flattened_patches=flattened_patches, attention_mask=attention_mask)
+
+    def flatten_patches(self, intermediate_representations):
+        max_patches = 1024
+        patch_height = 16
+        patch_width = 16
+        
+        _, image_height, image_width = intermediate_representations.shape
+        scale = torch.sqrt(torch.tensor(max_patches * (patch_height / image_height) * (patch_width / image_width)))
+        num_feasible_rows = max(min(int(scale * image_height / patch_height), max_patches), 1)
+        num_feasible_cols = max(min(int(scale * image_width / patch_width), max_patches), 1)
+        resized_height = max(num_feasible_rows * patch_height, 1)
+        resized_width = max(num_feasible_cols * patch_width, 1)
+        intermediate_representations = F.interpolate(
+            intermediate_representations.unsqueeze(0),
+            size=(resized_height, resized_width),
+            mode="bilinear",
+            align_corners=False
+        ).squeeze(0)
+        # Extract patches using unfold
+        image_tensor = intermediate_representations.unsqueeze(0)
+        patches = torch.nn.functional.unfold(image_tensor, (patch_height, patch_width), stride=(patch_height, patch_width))
+        patches = patches.reshape(image_tensor.size(0), image_tensor.size(1), patch_height, patch_width, -1)
+        patches = patches.permute(0, 4, 2, 3, 1).reshape(
+            image_tensor.size(2) // patch_height,
+            image_tensor.size(3) // patch_width,
+            image_tensor.size(1) * patch_height * patch_width,
+        )
+        patches = patches.unsqueeze(0)
+
+        patches_shape = patches.shape
+        rows = patches_shape[1]
+        columns = patches_shape[2]
+        depth = patches_shape[3]
+        # [rows * columns, patch_height * patch_width * image_channels]
+        patches = patches.reshape([rows * columns, depth])
+
+         # [rows * columns, 1]
+        row_ids = torch.arange(rows).reshape([rows, 1]).repeat(1, columns).reshape([rows * columns, 1])
+        col_ids = torch.arange(columns).reshape([1, columns]).repeat(rows, 1).reshape([rows * columns, 1])
+
+        # Offset by 1 so the ids do not contain zeros, which represent padding.
+        row_ids += 1
+        col_ids += 1
+
+        # Prepare additional patch features.
+        # [rows * columns, 1]
+        row_ids = row_ids.to(torch.float32)
+        col_ids = col_ids.to(torch.float32)
+
+        # [rows * columns, 2 + patch_height * patch_width * image_channels]
+        result = torch.cat([row_ids, col_ids, patches], -1)
+
+        # [max_patches, 2 + patch_height * patch_width * image_channels]
+        result = torch.nn.functional.pad(result, [0, 0, 0, max_patches - (rows * columns)]).float()
+
+        # Flatten patches, add a batch dimension
+        flattened_patches = result.unsqueeze(0)
+       
+
+        # Create attention mask
+        attention_mask = (torch.sum(flattened_patches, dim=-1) != 0).to(self.device)
+        # print("flattened_patches", flattened_patches.shape)
+        # print("attention_mask", attention_mask.shape)
+
+        return flattened_patches, attention_mask
+
+
+
+    def forward(self, captions, intermediate_representations):
+        labels = self.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.device)
+        flattened_patches, attention_mask = self.flatten_patches(intermediate_representations)
+        model_outputs = self.model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
+        # if self.verbose:
+        #     generated_ids = self.model.generate(flattened_patches=flattened_patches, attention_mask=attention_mask, max_length=48)
+        #     print("decoded", self.processor.batch_decode(generated_ids, skip_special_tokens=True))
         return model_outputs
     
     def train(self, mode=True):
@@ -37,6 +110,7 @@ class Captioner(nn.Module):
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.model.to(*args, **kwargs)
+        self.device = args[0]
         return self
     
 
@@ -55,16 +129,8 @@ class Diffuser(nn.Module):
         
 
     def forward(self, captions):
-        print("diffuser forward")
         # encode the caption into text embeddings
-        text_inputs = self.tokenizer(captions, return_tensors="pt", padding=True, truncation=True, max_length=16)
-        text_input_ids = text_inputs.input_ids
-        attention_mask = text_inputs.attention_mask.to(self.device)
-        text_embeddings = self.text_encoder(
-            text_input_ids.to(self.device),
-            attention_mask=attention_mask,
-        )
-        text_embeddings = text_embeddings[0]
+        
         # set some parameters
         batch_size = 1
         num_images_per_prompt = 1
@@ -75,14 +141,14 @@ class Diffuser(nn.Module):
 
 
         # 1. Encode input prompt
-        # text_inputs = self.tokenizer(captions, return_tensors="pt", padding=True, truncation=True, max_length=16)
-        # text_input_ids = text_inputs.input_ids
-        # attention_mask = text_inputs.attention_mask.to(self.device)
-        # text_embeddings = self.text_encoder(
-        #     text_input_ids.to(self.device),
-        #     attention_mask=attention_mask,
-        # )
-        # text_embeddings = text_embeddings[0]
+        text_inputs = self.tokenizer(captions, return_tensors="pt", padding=True, truncation=True, max_length=16)
+        text_input_ids = text_inputs.input_ids
+        attention_mask = text_inputs.attention_mask.to(self.device)
+        text_embeddings = self.text_encoder(
+            text_input_ids.to(self.device),
+            attention_mask=attention_mask,
+        )
+        text_embeddings = text_embeddings[0]
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         bs_embed, seq_len, _ = text_embeddings.shape
         text_embeddings = text_embeddings.repeat(1, num_images_per_prompt, 1)
@@ -126,7 +192,7 @@ class Diffuser(nn.Module):
                 timesteps.set_description(f"Processing timestep {i+1}")
         
         # 6. Generate image
-        latents = 1 / 0.18215 * latents
+        latents = 1 / self.scheduler.init_noise_sigma * latents # 0.18215
         
         distribution = self.vae.decode(latents)
         image = distribution.sample
@@ -182,100 +248,17 @@ class CycleDiffusionModel(nn.Module):
 
     def forward(self, captions):
         if self.verbose:
-            print("model forward")
-        # real image generation by diffusing the caption
+            print("cyclediff forward")
         intermediate_representations = self.diffuser(captions)
         # for i, img in enumerate(intermediate_representations):
         #     torch.save(img, f"intermediate_representation_{i}.pt")
-
-        # hard coded for debugging
-        # intermediate_representation = Image.open("intermediate_representation.png")
-        # captions ="a drawing of a cartoon character with a boxing glove"
         
-        # encode the intermediate representations into flattened patches and attention mask
-        encoding = self.captioner.processor(images=intermediate_representations, return_tensors="pt", add_special_tokens=True, max_patches=1024)
-        # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
-        # flattened_patches = encoding["flattened_patches"].to(self.device)
-        # print("flattened_patches", flattened_patches.shape)
-        # attention_mask = encoding["attention_mask"].to(self.device)
-        # print("attention_mask", attention_mask.shape)
-        max_patches = 1024
-        patch_height = 16
-        patch_width = 16
         
-        csz, image_height, image_width = intermediate_representations.shape
-        scale = torch.sqrt(torch.tensor(max_patches * (patch_height / image_height) * (patch_width / image_width)))
-        num_feasible_rows = max(min(int(scale * image_height / patch_height), max_patches), 1)
-        num_feasible_cols = max(min(int(scale * image_width / patch_width), max_patches), 1)
-        resized_height = max(num_feasible_rows * patch_height, 1)
-        resized_width = max(num_feasible_cols * patch_width, 1)
-        print("resized_height", resized_height)
-        intermediate_representations = F.interpolate(
-            intermediate_representations.unsqueeze(0),
-            size=(resized_height, resized_width),
-            mode="bilinear",
-            align_corners=False
-        ).squeeze(0)
-
-        print("intermediate_representations", intermediate_representations.shape)
-
-        # Extract patches using unfold
-        image_tensor = intermediate_representations.unsqueeze(0)
-        patches = torch.nn.functional.unfold(image_tensor, (patch_height, patch_width), stride=(patch_height, patch_width))
-        patches = patches.reshape(image_tensor.size(0), image_tensor.size(1), patch_height, patch_width, -1)
-        patches = patches.permute(0, 4, 2, 3, 1).reshape(
-            image_tensor.size(2) // patch_height,
-            image_tensor.size(3) // patch_width,
-            image_tensor.size(1) * patch_height * patch_width,
-        )
-        patches = patches.unsqueeze(0)
-
-        patches_shape = patches.shape
-        rows = patches_shape[1]
-        columns = patches_shape[2]
-        depth = patches_shape[3]
-        # [rows * columns, patch_height * patch_width * image_channels]
-        patches = patches.reshape([rows * columns, depth])
-
-         # [rows * columns, 1]
-        row_ids = torch.arange(rows).reshape([rows, 1]).repeat(1, columns).reshape([rows * columns, 1])
-        col_ids = torch.arange(columns).reshape([1, columns]).repeat(rows, 1).reshape([rows * columns, 1])
-
-        # Offset by 1 so the ids do not contain zeros, which represent padding.
-        row_ids += 1
-        col_ids += 1
-
-        # Prepare additional patch features.
-        # [rows * columns, 1]
-        row_ids = row_ids.to(torch.float32)
-        col_ids = col_ids.to(torch.float32)
-
-        # [rows * columns, 2 + patch_height * patch_width * image_channels]
-        result = torch.cat([row_ids, col_ids, patches], -1)
-
-        # [max_patches, 2 + patch_height * patch_width * image_channels]
-        result = torch.nn.functional.pad(result, [0, 0, 0, max_patches - (rows * columns)]).float()
-
-        # Flatten patches, add a batch dimension
-        flattened_patches = result.unsqueeze(0)
-        print("flattened_patches", flattened_patches.shape)
-
-        # Create attention mask
-        attention_mask = (torch.sum(flattened_patches, dim=-1) != 0).to(self.device)
-        print("attention_mask", attention_mask.shape)
-
-        labels = self.captioner.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.device)
+        reconstructed_caption = self.captioner(captions, intermediate_representations)
         if self.verbose:
-            print("flattened_patches", flattened_patches.shape)
-            print("attention_mask", attention_mask.shape)
-            print("labels", labels.shape)
-        reconstructed_caption = self.captioner.model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
-        if self.verbose:
-            generated_ids = self.captioner.model.generate(flattened_patches=flattened_patches, attention_mask=attention_mask, max_length=48)
-            print("decoded", self.captioner.processor.batch_decode(generated_ids, skip_special_tokens=True))
-        print("reconstructed_caption", reconstructed_caption)
-        print("reconstructed_caption items", reconstructed_caption.items())
-
+            print("reconstructed_caption", reconstructed_caption)
+            print("reconstructed_caption items", reconstructed_caption.items())
+        
         Output = namedtuple("Output", ["loss", "logits", "encoder_last_hidden_state"])
         output = Output(reconstructed_caption.loss, reconstructed_caption.logits, reconstructed_caption.encoder_last_hidden_state)
         return output
