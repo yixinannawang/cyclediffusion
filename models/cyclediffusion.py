@@ -96,7 +96,7 @@ class CycleDiffusionModel(nn.Module):
         # encoding = {k:v.squeeze() for k,v in encoding.items()} # from (1, 1024, 768) to (1024, 768), remove the batch dimension
         flattened_patches = encoding["flattened_patches"].to(self.device)
         attention_mask = encoding["attention_mask"].to(self.device)
-        labels = self.captioner.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.captioner.device)
+        labels = self.captioner.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.device)
         if self.verbose:
             print("flattened_patches", flattened_patches.shape)
             print("attention_mask", attention_mask.shape)
