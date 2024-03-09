@@ -16,10 +16,22 @@ def log_gradients(model, writer, step):
         if param.requires_grad and param.grad is not None:
             writer.add_histogram(f"Captioner/gradients/{name}", param.grad, step)
     
-    # Assuming Diffuser uses self.pipe.unet for training
-    for name, param in model.diffuser.pipe.unet.named_parameters():
+    # Log gradients for Diffuser's UNet
+    for name, param in model.diffuser.unet.named_parameters():
         if param.requires_grad and param.grad is not None:
-            writer.add_histogram(f"Diffuser/gradients/{name}", param.grad, step)
+            writer.add_histogram(f"Diffuser/gradients/unet/{name}", param.grad, step)
+
+    # Log gradients for Diffuser's text_encoder
+    for name, param in model.diffuser.text_encoder.named_parameters():
+        if param.requires_grad and param.grad is not None:
+            writer.add_histogram(f"Diffuser/gradients/text_encoder/{name}", param.grad, step)
+
+    # Log gradients for Diffuser's vae
+    for name, param in model.diffuser.vae.named_parameters():
+        if param.requires_grad and param.grad is not None:
+            writer.add_histogram(f"Diffuser/gradients/vae/{name}", param.grad, step)
+
+
 
 # Save checkpoint
 def save_checkpoint(model, epoch, optimizer, file_path):
@@ -30,18 +42,20 @@ def save_checkpoint(model, epoch, optimizer, file_path):
     }, file_path)
 
 def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1):
-    writer = SummaryWriter()  
+    writer = SummaryWriter('runs/cyclediff')
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
     CHECKPOINT_PATH = "checkpoints"
     os.makedirs(CHECKPOINT_PATH, exist_ok=True)
+    
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
         train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, batch in train_progress:
-            data = batch
-            captions = data["text"]
+            captions = batch["text"]
+            
+            # writer.add_graph(model, input_to_model=text_embeddings)
             optimizer.zero_grad()
             outputs = model(captions)
             loss = outputs.loss
@@ -50,6 +64,7 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
             loss.backward()
             # log gradients
             log_gradients(model, writer, epoch * len(train_dataloader) + batch_idx)
+            
             # Update model parameters
             optimizer.step()
             total_loss += loss.item()
@@ -59,6 +74,7 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
                 print('[%d, %5d] loss: %.3f' %
                     (epoch + 1, batch_idx + 1, total_loss / 100))
                 total_loss = 0.0
+            
 
         # Validation loss. Only at specific epochs
         if epoch % 5 == 4:
@@ -103,8 +119,8 @@ if __name__ == "__main__":
     device = torch.device(f"cuda:{gpuid}" if torch.cuda.is_available() else "cpu")
     model = CycleDiffusionModel(verbose=False, device=device).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    train_dataloader = DataLoader(ds_train, batch_size=4, shuffle=True, collate_fn=cycle_collator)
-    val_dataloader = DataLoader(ds_test, batch_size=4, shuffle=True, collate_fn=cycle_collator)
+    train_dataloader = DataLoader(ds_train, batch_size=1, shuffle=True, collate_fn=cycle_collator)
+    val_dataloader = DataLoader(ds_test, batch_size=1, shuffle=True, collate_fn=cycle_collator)
 
     train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3)
 

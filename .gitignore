@@ -53,3 +53,5 @@ Archive.zip
 *.0
 
 *.png
+
+.DS_Store

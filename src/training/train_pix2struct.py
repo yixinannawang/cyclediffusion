@@ -47,7 +47,6 @@ def train_pix2struct(gpuid):
 
     train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True, collate_fn=collator)
     val_dataloader = DataLoader(val_dataset, batch_size=2, shuffle=False, collate_fn=collator)
-
     # Training loop
 
 
