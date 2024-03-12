@@ -1,4 +1,4 @@
-from multiprocessing import process
+import sys
 from src.data_preparation.hico_dataset import HICO, split_dataset
 from models.pretrained.pix2struct import processor, model
 from src.training.training_utils import collator
@@ -14,7 +14,6 @@ import os
 CHECKPOINT_PATH = "checkpoints"
 os.makedirs(CHECKPOINT_PATH, exist_ok=True)
 
-# Save checkpoint
 def save_checkpoint(model, epoch, optimizer, file_path):
     torch.save({
         'epoch': epoch,
@@ -22,19 +21,15 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
-
-# Load checkpoint
-def load_checkpoint(model, optimizer, file_path):
-    checkpoint = torch.load(file_path)
+def load_checkpoint(model, optimizer, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    return model, optimizer, checkpoint['epoch']
+    epoch = checkpoint['epoch']
+    return model, optimizer, epoch
 
-
-
-
-# Training loop and setup
-def train_pix2struct(gpuid):
+def train_model(gpu_id, model):
+    accumulation_steps = 4
     full_train_dataset = HICO(split='train')
     full_train_indices = list(range(len(full_train_dataset)))
 
@@ -45,116 +40,114 @@ def train_pix2struct(gpuid):
     train_dataset = HICO(split='train', indices=train_indices)
     val_dataset = HICO(split='train', indices=val_indices)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True, collate_fn=collator)
-    val_dataloader = DataLoader(val_dataset, batch_size=2, shuffle=False, collate_fn=collator)
+    train_dataloader = DataLoader(train_dataset, batch_size=20, shuffle=True, collate_fn=collator)
+    val_dataloader = DataLoader(val_dataset, batch_size=20, shuffle=False, collate_fn=collator)
+
     # Training loop
-
-
-    # Hyperparameters
-    # Initialize TensorBoard writer
     writer = SummaryWriter('runs/pix2struct_experiment')
 
     EPOCHS = 5000
-    patience = 10  # Number of epochs to wait for improvement before stopping
-    best_loss = float('inf')  # Initialize best loss to a very high value
-    patience_counter = 0  # Initialize patience counter
-    device = torch.device(f"cuda:{gpuid}" if torch.cuda.is_available() else "cpu")
-    start_epoch = 0
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    patience = 5
+    best_loss = float('inf')
+    patience_counter = 0
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-6)
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
-    # freeze all layers except last and langauge output layer
+
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
     for name, param in model.named_parameters():
         param.requires_grad = False
 
-    # unfreeze_layers = ['decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
-    unfreeze_layers = ['decoder.lm_head']
+    unfreeze_layers = ['decoder.layer.10','decoder.layer.11', 'decoder.final_layer_norm', 'decoder.lm_head']
+
     for name, param in model.named_parameters():
         if any(layer in name for layer in unfreeze_layers):
             param.requires_grad = True
-    
-    # Load checkpoint if available
+            
     if os.path.exists(os.path.join(CHECKPOINT_PATH, "best_model.pt")):
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
-        print(f"Resuming training from epoch {start_epoch}")
-    model.to(device)
+        print(f"Checkpoint loaded. Resuming training from epoch {start_epoch + 1}")
+    else:
+        start_epoch = 0
+        print("No checkpoint found. Starting training from scratch.")
+
     for epoch in range(start_epoch, EPOCHS):
         try:
             print("Epoch:", epoch)
-            model.train()  # Set the model back to training mode
+            model.train()
             total_loss = 0
             train_progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc=f"Epoch {epoch} Training")
+            optimizer.zero_grad()
             for idx, batch in train_progress_bar:
                 labels = batch.pop("labels").to(device)
                 flattened_patches = batch.pop("flattened_patches").to(device)
                 attention_mask = batch.pop("attention_mask").to(device)
-
-                optimizer.zero_grad()
+			
+                
                 outputs = model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss
                 loss.backward()
-                optimizer.step()
-
                 
+                if (idx + 1) % accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
 
                 total_loss += loss.item()
                 train_progress_bar.set_description(f"Epoch {epoch} Training Loss: {loss.item():.4f}")
                 train_progress_bar.refresh()
 
-            # Compute average loss for the epoch
             avg_train_loss = total_loss / len(train_dataloader)
             writer.add_scalar('Loss/train', avg_train_loss, epoch)
             print(f"Average Training Loss: {avg_train_loss}")
 
-            # Validation step
             model.eval()
-            val_progress_bar = tqdm(enumerate(val_dataloader), total=len(val_dataloader), desc=f"Epoch {epoch} Validation")
 
-            with torch.no_grad():
-                total_val_loss = 0
-                for idx, batch in val_progress_bar:
-                    labels = batch.pop("labels").to(device)
-                    flattened_patches = batch.pop("flattened_patches").to(device)
-                    attention_mask = batch.pop("attention_mask").to(device)
+            # Only perform validation at specific epochs
+            if epoch >= 100 or (epoch >= 50 and epoch % 5 == 0) or (epoch >= 10 and epoch % 10 == 0):
+                val_progress_bar = tqdm(enumerate(val_dataloader), total=len(val_dataloader), desc=f"Epoch {epoch} Validation")
 
-                    outputs = model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
-                    loss = outputs.loss
-                    total_val_loss += loss.item()
-                    val_progress_bar.set_description(f"Epoch {epoch} Validation Loss: {loss.item():.4f}")
-                    val_progress_bar.refresh()
+                with torch.no_grad():
+                    total_val_loss = 0
+                    for idx, batch in val_progress_bar:
+                        labels = batch.pop("labels").to(device)
+                        flattened_patches = batch.pop("flattened_patches").to(device)
+                        attention_mask = batch.pop("attention_mask").to(device)
 
-                avg_val_loss = total_val_loss / len(val_dataloader)
-                print(f"Validation Loss: {avg_val_loss}")
+                        outputs = model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
+                        loss = outputs.loss
+                        total_val_loss += loss.item()
+                        val_progress_bar.set_description(f"Epoch {epoch} Validation Loss: {loss.item():.4f}")
+                        val_progress_bar.refresh()
 
-                # Early stopping check
-                if avg_val_loss < best_loss:
-                    best_loss = avg_val_loss
-                    patience_counter = 0  # Reset patience counter
-                    # Save the model if it's the best so far
-                    save_checkpoint(model, epoch, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
-                else:
-                    patience_counter += 1
-            
-            writer.add_scalar("Loss/val", avg_val_loss, epoch)
-            scheduler.step(avg_val_loss)
+                    avg_val_loss = total_val_loss / len(val_dataloader)
+                    print(f"Validation Loss: {avg_val_loss}")
 
-            if patience_counter >= patience:
-                print("Early stopping triggered")
-                break  # Exit the training loop
+                    if avg_val_loss < best_loss:
+                        best_loss = avg_val_loss
+                        patience_counter = 0
+                        save_checkpoint(model, epoch, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
+                    else:
+                        patience_counter += 1
+                
+                writer.add_scalar("Loss/val", avg_val_loss, epoch)
+                scheduler.step(avg_val_loss)
 
+                if patience_counter >= patience:
+                    print("Early stopping triggered")
+                    break
             
         except Exception as e:
             print(f"Error during training: {e}")
-            # Optionally log the error details somewhere
-            continue  # Or break, based on your preference
+            continue
 
     writer.close()
 
-
 if __name__ == "__main__":
-    train_pix2struct(0)
-    # p = process(target=train_pix2struct, args=(0,))
-    # p.start()
-    # p.join()
-    # p.terminate()
-    # p.close()
-    # p.join()
+    if len(sys.argv) != 2:
+        print("Usage: python train.py <gpu_id>")
+        sys.exit(1)
+    
+    gpu_id = int(sys.argv[1])
+    train_model(gpu_id, model)
+
