@@ -11,7 +11,7 @@ from accelerate.state import AcceleratorState
 from accelerate.utils import ProjectConfiguration, set_seed
 from tqdm import tqdm
 from collections import namedtuple
-from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
+# from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 # Initialize processor and model
 class Captioner(nn.Module):
     def __init__(self, pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base"):
@@ -242,7 +242,7 @@ class Diffuser(nn.Module):
         self.vae.eval()
         for param in self.vae.parameters():
             param.requires_grad = False
-        self.unet.enable_xformers_memory_efficient_attention(MemoryEfficientAttentionFlashAttentionOp)
+        self.unet.enable_xformers_memory_efficient_attention()
 
         return self
     
