@@ -120,5 +120,5 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(ds_train, batch_size=1, shuffle=True, collate_fn=cycle_collator)
     val_dataloader = DataLoader(ds_test, batch_size=1, shuffle=True, collate_fn=cycle_collator)
 
-    train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4)
+    train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=1000, patience=3, accumulation_steps = 4)
 

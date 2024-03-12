@@ -18,7 +18,7 @@ class Captioner(nn.Module):
         super(Captioner, self).__init__()
         self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(pix2struct_pretrained_model_name)
-        self.device = torch.device("cuda:0")
+        self.device = torch.device("cuda:1")
 
 
     def flatten_patches(self, intermediate_representations):
@@ -137,7 +137,7 @@ class Diffuser(nn.Module):
         self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
-        self.device = torch.device("cuda:1")
+        self.device = torch.device("cuda:0")
         
 
     def forward(self, captions):
@@ -146,7 +146,7 @@ class Diffuser(nn.Module):
         # set some parameters
         batch_size = 1
         num_images_per_prompt = 1
-        num_inference_steps = 30
+        num_inference_steps = 50
         
         # 0. Default height and width to unet
         height = self.unet.config.sample_size * self.vae_scale_factor
@@ -309,8 +309,8 @@ class CycleDiffusionModel(nn.Module):
         return self
     
     def split_models(self):
-        self.captioner.to(self.device0)
-        self.diffuser.to(self.device1)
+        self.diffuser.to(self.device0)
+        self.captioner.to(self.device1)
         return self
     
     # when i call model.parameters(), it should return only the diffuser's unet's parameters
