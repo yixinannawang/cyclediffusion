@@ -43,7 +43,7 @@ def load_checkpoint(model, optimizer, file_path):
 
 
 # Training loop and setup
-def train_pix2struct(rank, world_size):
+def train_pix2struct(rank, world_size, model=model, processor=processor):
     setup(rank, world_size)
 
 
@@ -62,9 +62,9 @@ def train_pix2struct(rank, world_size):
 
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
-    train_dataloader = DataLoader(train_dataset, batch_size=4, sampler=train_sampler, collate_fn=collator)
+    train_dataloader = DataLoader(train_dataset, batch_size=8, sampler=train_sampler, collate_fn=collator)
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
-    val_dataloader = DataLoader(val_dataset, batch_size=4, sampler=val_sampler, collate_fn=collator)
+    val_dataloader = DataLoader(val_dataset, batch_size=8, sampler=val_sampler, collate_fn=collator)
 
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
    # freeze all layers except last and langauge output layer
@@ -99,26 +99,26 @@ def train_pix2struct(rank, world_size):
     start_epoch = 0
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
-    
+    accumulation_steps = 4
     for epoch in range(start_epoch, EPOCHS):
         try:
             print("Epoch:", epoch)
             model.train()  # Set the model back to training mode
             total_loss = 0
+            optimizer.zero_grad()
             train_progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc=f"Epoch {epoch} Training")
             for idx, batch in train_progress_bar:
                 labels = batch.pop("labels").to(device)
                 flattened_patches = batch.pop("flattened_patches").to(device)
                 attention_mask = batch.pop("attention_mask").to(device)
 
-                optimizer.zero_grad()
+                
                 outputs = model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss
                 loss.backward()
-                optimizer.step()
-
-                
-
+                if (idx + 1) % accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
                 total_loss += loss.item()
                 train_progress_bar.set_description(f"Epoch {epoch} Training Loss: {loss.item():.4f}")
                 train_progress_bar.refresh()
