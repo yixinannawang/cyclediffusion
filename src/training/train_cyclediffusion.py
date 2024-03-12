@@ -41,7 +41,7 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
-def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1):
+def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1, accumulation_steps = 4):
     writer = SummaryWriter('runs/cyclediff')
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
@@ -51,12 +51,13 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
+        optimizer.zero_grad()
         train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, batch in train_progress:
             captions = batch["text"]
             
             # writer.add_graph(model, input_to_model=text_embeddings)
-            optimizer.zero_grad()
+            
             outputs = model(captions)
             loss = outputs.loss
             print(f"Loss: {loss.item()}")
@@ -65,9 +66,13 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
             # log gradients
             log_gradients(model, writer, epoch * len(train_dataloader) + batch_idx)
             
-            # Update model parameters
-            optimizer.step()
+            # Gradient accumulation
+            if (batch_idx + 1) % accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+
             total_loss += loss.item()
+
             # log loss
             writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
             if batch_idx % 100 == 99:  # Print every 100 mini-batches
@@ -122,5 +127,5 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(ds_train, batch_size=1, shuffle=True, collate_fn=cycle_collator)
     val_dataloader = DataLoader(ds_test, batch_size=1, shuffle=True, collate_fn=cycle_collator)
 
-    train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3)
+    train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4)
 

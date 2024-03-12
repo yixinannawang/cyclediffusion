@@ -22,6 +22,16 @@ class Captioner(nn.Module):
 
 
     def flatten_patches(self, intermediate_representations):
+        """
+        Flattens the patches and returns the flattened patches and attention mask
+
+        Args:
+            intermediate_representations (torch.Tensor): The intermediate representations of the image. (C, H, W)
+
+        Returns:
+            torch.Tensor: The flattened patches. (max_patches, 2 + patch_height * patch_width * image_channels)
+            torch.Tensor: The attention mask. (max_patches, 1)
+        """
         max_patches = 1024
         patch_height = 16
         patch_width = 16
@@ -105,6 +115,8 @@ class Captioner(nn.Module):
     def eval(self):
         super().eval()
         self.model.eval()
+        for param in self.model.parameters():
+            param.requires_grad = False
         return self
     
     def to(self, *args, **kwargs):
@@ -134,7 +146,8 @@ class Diffuser(nn.Module):
         # set some parameters
         batch_size = 1
         num_images_per_prompt = 1
-        num_inference_steps = 5
+        num_inference_steps = 30
+        
         # 0. Default height and width to unet
         height = self.unet.config.sample_size * self.vae_scale_factor
         width = self.unet.config.sample_size * self.vae_scale_factor
@@ -201,6 +214,16 @@ class Diffuser(nn.Module):
         image = image.cpu().to(torch.float32)
         # view to remove the batch dimension
         image = image.view(image.shape[1:])
+        # get a detach copy of the image
+        saved_image = image.detach().clone()
+        # convert to PIL image
+        saved_image = (saved_image * 255).to(torch.uint8).numpy().transpose(1, 2, 0)
+        saved_image = Image.fromarray(saved_image)
+        # save the image
+        saved_image.save(f"diffused_image_{captions}.png")
+
+
+
 
         return image
         
@@ -211,8 +234,14 @@ class Diffuser(nn.Module):
     def train(self, mode=True):
         super().train(mode)
         self.unet.train(mode)
-        self.text_encoder.train(False)
-        self.vae.train(False)
+        for param in self.unet.parameters():
+            param.requires_grad = True
+        self.text_encoder.eval()
+        for param in self.text_encoder.parameters():
+            param.requires_grad = False
+        self.vae.eval()
+        for param in self.vae.parameters():
+            param.requires_grad = False
         # self.unet.enable_xformers_memory_efficient_attention()
 
         return self
@@ -250,8 +279,8 @@ class CycleDiffusionModel(nn.Module):
         if self.verbose:
             print("cyclediff forward")
         intermediate_representations = self.diffuser(captions)
-        # for i, img in enumerate(intermediate_representations):
-        #     torch.save(img, f"intermediate_representation_{i}.pt")
+
+
         
         
         reconstructed_caption = self.captioner(captions, intermediate_representations)
@@ -265,7 +294,7 @@ class CycleDiffusionModel(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        self.captioner.train(False)
+        self.captioner.eval()
         self.diffuser.train(mode)
         return self
     
