@@ -76,8 +76,8 @@ class Captioner(nn.Module):
 
         # Prepare additional patch features.
         # [rows * columns, 1]
-        row_ids = row_ids.to(torch.float32)
-        col_ids = col_ids.to(torch.float32)
+        row_ids = row_ids.to(torch.float32).to(self.device)
+        col_ids = col_ids.to(torch.float32).to(self.device)
 
         # [rows * columns, 2 + patch_height * patch_width * image_channels]
         result = torch.cat([row_ids, col_ids, patches], -1)
@@ -128,7 +128,7 @@ class Captioner(nn.Module):
 
 
 class Diffuser(nn.Module):
-    def __init__(self, model_id = "stabilityai/stable-diffusion-2-base"):
+    def __init__(self, model_id = "OFA-Sys/small-stable-diffusion-v0"):
         super(Diffuser, self).__init__()
     
         self.scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
@@ -141,12 +141,13 @@ class Diffuser(nn.Module):
         
 
     def forward(self, captions):
+    
         # encode the caption into text embeddings
         
         # set some parameters
         batch_size = 1
         num_images_per_prompt = 1
-        num_inference_steps = 50
+        num_inference_steps = 5
         
         # 0. Default height and width to unet
         height = self.unet.config.sample_size * self.vae_scale_factor
@@ -207,20 +208,20 @@ class Diffuser(nn.Module):
         # 6. Generate image
         latents = 1 / self.scheduler.init_noise_sigma * latents # 0.18215
         
-        distribution = self.vae.decode(latents)
+        distribution = self.vae.decode(latents.to(torch.device("cuda:1")))
         image = distribution.sample
         image = (image / 2 + 0.5).clamp(0, 1)
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
-        image = image.cpu().to(torch.float32)
+        image = image.to(torch.float32)
         # view to remove the batch dimension
         image = image.view(image.shape[1:])
         # get a detach copy of the image
-        saved_image = image.detach().clone()
+        # saved_image = image.detach().clone()
         # convert to PIL image
-        saved_image = (saved_image * 255).to(torch.uint8).numpy().transpose(1, 2, 0)
-        saved_image = Image.fromarray(saved_image)
+        # saved_image = (saved_image * 255).to(torch.uint8).numpy().transpose(1, 2, 0)
+        # saved_image = Image.fromarray(saved_image)
         # save the image
-        saved_image.save(f"diffused_image_{captions}.png")
+        #saved_image.save(f"diffused_image_{captions}.png")
 
 
 
@@ -255,7 +256,7 @@ class Diffuser(nn.Module):
         super().to(*args, **kwargs)
         self.unet.to(*args, **kwargs)
         self.text_encoder.to(*args, **kwargs)
-        self.vae.to(*args, **kwargs)
+        self.vae.to(torch.device("cuda:1"))
         self.device = args[0]
         return self
 
@@ -278,11 +279,12 @@ class CycleDiffusionModel(nn.Module):
         self.verbose = verbose
 
     def forward(self, captions):
+        torch.cuda.empty_cache()
         if self.verbose:
             print("cyclediff forward")
         intermediate_representations = self.diffuser(captions)
 
-        intermediate_representations.to(self.device0)
+        intermediate_representations = intermediate_representations.to(self.device1)
 
 
         
