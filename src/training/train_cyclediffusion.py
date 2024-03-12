@@ -41,7 +41,7 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
-def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1, accumulation_steps = 4):
+def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1, accumulation_steps = 4):
     writer = SummaryWriter('runs/cyclediff')
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
@@ -89,8 +89,6 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
                 for batch in val_dataloader:
                     data = batch
                     captions = data["text"]
-                    if device == "cpu":
-                        captions = captions.float()
                     outputs = model(captions)
                     loss = outputs.loss
                     val_loss += loss.item()
@@ -116,16 +114,11 @@ def train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, 
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python train_cyclediffusion.py <gpuid>")
-        sys.exit(1)
-    gpuid = int(sys.argv[1])
     # Example usage
-    device = torch.device(f"cuda:{gpuid}" if torch.cuda.is_available() else "cpu")
-    model = CycleDiffusionModel(verbose=False, device=device).to(device)
+    model = CycleDiffusionModel(verbose=False).split_models()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     train_dataloader = DataLoader(ds_train, batch_size=1, shuffle=True, collate_fn=cycle_collator)
     val_dataloader = DataLoader(ds_test, batch_size=1, shuffle=True, collate_fn=cycle_collator)
 
-    train_cyclediff(model, optimizer, device, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4)
+    train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4)
 

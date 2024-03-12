@@ -128,7 +128,7 @@ class Captioner(nn.Module):
 
 
 class Diffuser(nn.Module):
-    def __init__(self, model_id = "stabilityai/stable-diffusion-2-base", weight_dtype = torch.float32):
+    def __init__(self, model_id = "stabilityai/stable-diffusion-2-base"):
         super(Diffuser, self).__init__()
     
         self.scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
@@ -136,8 +136,8 @@ class Diffuser(nn.Module):
         self.text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder")
         self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-        self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
-        self.device = torch.device("cuda:0")
+        self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=torch.float16)
+        self.device = torch.device("cuda:1")
         
 
     def forward(self, captions):
@@ -242,7 +242,7 @@ class Diffuser(nn.Module):
         self.vae.eval()
         for param in self.vae.parameters():
             param.requires_grad = False
-        # self.unet.enable_xformers_memory_efficient_attention()
+        self.unet.enable_xformers_memory_efficient_attention()
 
         return self
     
@@ -267,11 +267,13 @@ class CycleDiffusionModel(nn.Module):
                  #stable_diffusion_params = "stabilityai/stable-diffusion-2-base"
                     stable_diffusion_params = "OFA-Sys/small-stable-diffusion-v0",
                     verbose = False,
-                    device = torch.device("cuda:0")
+                    device0 = torch.device("cuda:0"),
+                    device1 = torch.device("cuda:1")
                  ):
         super(CycleDiffusionModel, self).__init__()
         self.captioner = Captioner(pix2struct_pretrained_model_name)
-        self.device = device
+        self.device0 = device0
+        self.device1 = device1
         self.diffuser = Diffuser(stable_diffusion_params)
         self.verbose = verbose
 
@@ -279,6 +281,8 @@ class CycleDiffusionModel(nn.Module):
         if self.verbose:
             print("cyclediff forward")
         intermediate_representations = self.diffuser(captions)
+
+        intermediate_representations.to(self.device0)
 
 
         
@@ -304,11 +308,9 @@ class CycleDiffusionModel(nn.Module):
         self.diffuser.eval()
         return self
     
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.captioner.to(*args, **kwargs)
-        self.diffuser.to(*args, **kwargs)
-        self.device = args[0]
+    def split_models(self):
+        self.captioner.to(self.device0)
+        self.diffuser.to(self.device1)
         return self
     
     # when i call model.parameters(), it should return only the diffuser's unet's parameters
