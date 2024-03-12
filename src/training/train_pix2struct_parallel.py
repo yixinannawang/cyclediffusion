@@ -49,7 +49,7 @@ def train_pix2struct(rank, world_size, model=model, processor=processor):
 
     full_train_dataset = HICO(split='train')
     full_train_indices = list(range(len(full_train_dataset)))
-
+    optimizer = AdamW(model.parameters(), lr=1e-5)
 
 
 
