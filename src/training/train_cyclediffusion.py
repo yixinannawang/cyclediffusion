@@ -41,7 +41,7 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
-def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, gpuid=1, accumulation_steps = 4):
+def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4):
     writer = SummaryWriter('runs/cyclediff')
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter

@@ -11,7 +11,7 @@ from accelerate.state import AcceleratorState
 from accelerate.utils import ProjectConfiguration, set_seed
 from tqdm import tqdm
 from collections import namedtuple
-# from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
+from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 # Initialize processor and model
 class Captioner(nn.Module):
     def __init__(self, pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base"):
@@ -136,7 +136,7 @@ class Diffuser(nn.Module):
         self.text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder")
         self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-        self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=torch.float16)
+        self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
         self.device = torch.device("cuda:1")
         
 
@@ -242,7 +242,7 @@ class Diffuser(nn.Module):
         self.vae.eval()
         for param in self.vae.parameters():
             param.requires_grad = False
-        self.unet.enable_xformers_memory_efficient_attention()
+        self.unet.enable_xformers_memory_efficient_attention(MemoryEfficientAttentionFlashAttentionOp)
 
         return self
     
