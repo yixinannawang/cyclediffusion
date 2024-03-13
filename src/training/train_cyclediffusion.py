@@ -7,6 +7,7 @@ from src.data_preparation.captions_dataset import ds_train, ds_test
 from torch.utils.data import DataLoader
 from src.training.training_utils import cycle_collator
 from torch.utils.tensorboard import SummaryWriter
+from torch.cuda.amp import GradScaler, autocast
 import os
 import sys
 
@@ -41,7 +42,9 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
-def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 4):
+def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 1):
+    scaler = GradScaler()
+
     writer = SummaryWriter('runs/cyclediff')
     best_loss = float('inf')  # Initialize best loss to a very high value
     patience_counter = 0  # Initialize patience counter
@@ -57,24 +60,27 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
             captions = batch["text"]
             
             # writer.add_graph(model, input_to_model=text_embeddings)
-            
-            outputs = model(captions)
-            loss = outputs.loss
+            with autocast():
+                outputs = model(captions)
+                loss = outputs.loss
+           
             print(f"Loss: {loss.item()}")
             # Backward pass
-            loss.backward()
+            scaler.scale(loss).backward()
             # log gradients
-            log_gradients(model, writer, epoch * len(train_dataloader) + batch_idx)
+            
             
             # Gradient accumulation
             if (batch_idx + 1) % accumulation_steps == 0:
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
 
             total_loss += loss.item()
 
             # log loss
             writer.add_scalar('Loss/train', loss.item(), epoch * len(train_dataloader) + batch_idx)
+            log_gradients(model, writer, epoch * len(train_dataloader) + batch_idx)
             if batch_idx % 100 == 99:  # Print every 100 mini-batches
                 print('[%d, %5d] loss: %.3f' %
                     (epoch + 1, batch_idx + 1, total_loss / 100))
@@ -89,8 +95,10 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
                 for batch in val_dataloader:
                     data = batch
                     captions = data["text"]
-                    outputs = model(captions)
-                    loss = outputs.loss
+                    with autocast():
+                        outputs = model(captions)
+                        loss = outputs.loss
+
                     val_loss += loss.item()
                     writer.add_scalar('Loss/val', loss.item(), epoch * len(val_dataloader) + batch_idx)
             print(f"Validation loss: {val_loss / len(val_dataloader)}")

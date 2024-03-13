@@ -146,7 +146,7 @@ class Diffuser(nn.Module):
         
         # set some parameters
         batch_size = 1
-        num_images_per_prompt = 1
+        # num_images_per_prompt = 1
         num_inference_steps = 5
         
         # 0. Default height and width to unet
@@ -156,17 +156,14 @@ class Diffuser(nn.Module):
 
         # 1. Encode input prompt
         text_inputs = self.tokenizer(captions, return_tensors="pt", padding=True, truncation=True, max_length=16)
-        text_input_ids = text_inputs.input_ids
+        text_input_ids = text_inputs.input_ids.to(self.device)  # Move to GPU as soon as possible
         attention_mask = text_inputs.attention_mask.to(self.device)
-        text_embeddings = self.text_encoder(
-            text_input_ids.to(self.device),
-            attention_mask=attention_mask,
-        )
-        text_embeddings = text_embeddings[0]
+
+        text_embeddings = self.text_encoder(input_ids=text_input_ids, attention_mask=attention_mask)[0]
         # duplicate text embeddings for each generation per prompt, using mps friendly method
-        bs_embed, seq_len, _ = text_embeddings.shape
-        text_embeddings = text_embeddings.repeat(1, num_images_per_prompt, 1)
-        text_embeddings = text_embeddings.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        # bs_embed, seq_len, _ = text_embeddings.shape
+        # text_embeddings = text_embeddings.repeat(1, num_images_per_prompt, 1)
+        # text_embeddings = text_embeddings.view(bs_embed * num_images_per_prompt, seq_len, -1)
 
 
         # 2. Prepare timesteps
