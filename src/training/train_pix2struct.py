@@ -1,5 +1,6 @@
 import sys
 from src.data_preparation.hico_dataset import HICO, split_dataset
+from src.data_preparation.whatsup_dataset import Whatsup
 from models.pretrained.pix2struct import processor, model
 from src.training.training_utils import collator
 from torch.utils.data import DataLoader
@@ -30,21 +31,25 @@ def load_checkpoint(model, optimizer, checkpoint_path):
 
 def train_model(gpu_id, model):
     accumulation_steps = 4
-    full_train_dataset = HICO(split='train')
+    # full_train_dataset = HICO(split='train')
+    full_train_dataset = Whatsup(split='train')
     full_train_indices = list(range(len(full_train_dataset)))
 
     # Split indices for training and validation
     train_indices, val_indices = split_dataset(full_train_indices, val_size=0.2)
 
     # Create dataset instances for training and validation
-    train_dataset = HICO(split='train', indices=train_indices)
-    val_dataset = HICO(split='train', indices=val_indices)
+    # train_dataset = HICO(split='train', indices=train_indices)
+    # val_dataset = HICO(split='train', indices=val_indices)
+
+    train_dataset = Whatsup(split='train', indices=train_indices)
+    val_dataset = Whatsup(split='train', indices=val_indices)
 
     train_dataloader = DataLoader(train_dataset, batch_size=20, shuffle=True, collate_fn=collator)
     val_dataloader = DataLoader(val_dataset, batch_size=20, shuffle=False, collate_fn=collator)
 
     # Training loop
-    writer = SummaryWriter('runs/pix2struct_experiment')
+    writer = SummaryWriter('runs/pix2struct_experiment_whatsup')
 
     EPOCHS = 5000
     patience = 5
@@ -104,7 +109,7 @@ def train_model(gpu_id, model):
             model.eval()
 
             # Only perform validation at specific epochs
-            if epoch >= 100 or (epoch >= 50 and epoch % 5 == 0) or (epoch >= 10 and epoch % 10 == 0):
+            if (epoch >= 100 and epoch % 5 == 0) or (epoch >= 50 and epoch % 10 == 0) or (epoch >= 10 and epoch % 10 == 0):
                 val_progress_bar = tqdm(enumerate(val_dataloader), total=len(val_dataloader), desc=f"Epoch {epoch} Validation")
 
                 with torch.no_grad():
