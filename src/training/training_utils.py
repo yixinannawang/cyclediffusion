@@ -1,6 +1,8 @@
+from pkg_resources import ResolutionError
 import torch
 from torch.utils.data import DataLoader
 from models.pretrained.pix2struct import processor
+from torchvision import transforms
 
 # collator function
 def collator(batch):
@@ -21,9 +23,30 @@ def collator(batch):
   return new_batch
 
 def cycle_collator(batch):
-  new_batch = {"text":[]}
+  new_batch = {"text":[], "image":[]}
   texts = [item["text"] for item in batch]
+  images = [item["image"] for item in batch]
+  
+  resolution = 64
+
+  train_transforms = transforms.Compose(
+        [
+            transforms.Resize(resolution, interpolation=transforms.InterpolationMode.BILINEAR),
+            # transforms.CenterCrop(resolution) if args.center_crop else transforms.RandomCrop(resolution),
+            # transforms.RandomHorizontalFlip() if args.random_flip else transforms.Lambda(lambda x: x),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ]
+    )
+
+
+
+  rgb_images = [image.convert("RGB") for image in images]
+  pixel_values = [train_transforms(image) for image in rgb_images]
+
 
   new_batch["text"] = texts
+  new_batch["image"] = torch.stack(pixel_values)
+  
 
   return new_batch  

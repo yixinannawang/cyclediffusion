@@ -57,12 +57,17 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
         optimizer.zero_grad()
         train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, batch in train_progress:
+            # get the structure of the batch
             captions = batch["text"]
+            images = batch["image"]
+
             
             # writer.add_graph(model, input_to_model=text_embeddings)
             with autocast():
-                outputs = model(captions)
-                loss = outputs.loss
+                outputs, pixel_loss = model(captions=captions, images=images)
+                print(f"output and pixel loss: {outputs.loss}, {pixel_loss}")
+                # loss = outputs.loss + pixel_loss
+                loss = pixel_loss
            
             print(f"Loss: {loss.item()}")
             # Backward pass
@@ -123,7 +128,7 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
 
 if __name__ == "__main__":
     # Example usage
-    model = CycleDiffusionModel(verbose=False).split_models()
+    model = CycleDiffusionModel(verbose=False).split_models(debug=True)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     train_dataloader = DataLoader(ds_train, batch_size=1, shuffle=True, collate_fn=cycle_collator)
     val_dataloader = DataLoader(ds_test, batch_size=1, shuffle=True, collate_fn=cycle_collator)

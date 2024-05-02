@@ -2,4 +2,4 @@ export PYTHONPATH="${PYTHONPATH}:/Users/mariopenglee/Documents/GitHub/cyclediffu
 export PYTHONPATH="${PYTHONPATH}:/home/mario/Desktop/cyclediff/git/cyclediffusion"
 
 
-python3 -m tensorboard.main --logdir=./runs/pix2struct_experiment
+python3 -m tensorboard.main --logdir=./runs/
