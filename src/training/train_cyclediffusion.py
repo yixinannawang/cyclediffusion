@@ -66,8 +66,7 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
             with autocast():
                 outputs, pixel_loss = model(captions=captions, images=images)
                 print(f"output and pixel loss: {outputs.loss}, {pixel_loss}")
-                # loss = outputs.loss + pixel_loss
-                loss = pixel_loss
+                loss = outputs.loss + pixel_loss
            
             print(f"Loss: {loss.item()}")
             # Backward pass
