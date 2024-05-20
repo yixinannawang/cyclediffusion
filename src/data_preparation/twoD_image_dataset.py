@@ -8,11 +8,13 @@ from PIL import Image
 from io import BytesIO
 import math
 import itertools
-
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
+from models.pretrained.pix2struct import processor
+from sklearn.model_selection import train_test_split
+
 
 
 # Helper functions
@@ -108,16 +110,23 @@ def apply_spatial_relation(shape2, shape1, shape1_pos, shape1_size, spatial_rela
 
 
 # Class for balanced full dataset: no excluded combinations
+MAX_PATCHES = 1024
 class ShapeRelationDataset(Dataset):
     # Initialize dataset
-    def __init__(self, count, transforms=None, subset=False):
+    def __init__(self, count, transforms=None, subset=False, indices=None):
         self.transforms = transforms
         self.subset = subset
+        self.processor = processor
+        # self.split = split
+        self.indices = indices
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
         self.colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'pink', 'cyan']
         self.hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*', '']
         self.spatial_relations = ['in', 'on', 'under', 'on the left of', 'on the right of', 'hanging over']
         self.data = self.generate_images_balanced(count)
+        
+        if indices is not None:
+            self.data = [self.data[i] for i in indices]
 
     # Get number of items in the dataset
     def __len__(self):
@@ -128,7 +137,7 @@ class ShapeRelationDataset(Dataset):
 
         item = self.data[idx]
         image_array = item['image']
-        description = item['description']
+        label = item['description']
 
         # Convert the numpy array image to a PIL Image
         image = Image.fromarray((image_array * 255).astype(np.uint8))
@@ -137,41 +146,63 @@ class ShapeRelationDataset(Dataset):
         if self.transforms:
             image = self.transforms(image)
 
-        return image, description
+        encoding = self.processor(images=image, return_tensors="pt", add_special_tokens=True, max_patches=MAX_PATCHES)
+        encoding = {k:v.squeeze() for k,v in encoding.items()}
+        encoding["label"] = label
+
+        return encoding
+
 
     def generate_images_balanced(self, count):
         dataset = []
-        # Calculate times to iterate each feature to maintain balance
-        iterations_per_feature = count // len(self.shapes)
+        shape_combinations = list(itertools.permutations(self.shapes, 2))
+        total_combinations = len(shape_combinations) * len(self.spatial_relations)
+        # Balance across combinations
+        samples_per_combination = count // total_combinations
 
-        for spatial_relation in self.spatial_relations:
-            for _ in range(iterations_per_feature):
-                for shape in self.shapes:
-                    # Randomly select other features to ensure variety
-                    other_shape = random.choice([s for s in self.shapes if s != shape])
-                    color1, color2 = random.sample(self.colors, 2)
-                    hatch1, hatch2 = random.sample(self.hatches, 2)
+        # Balance across features for each combo
+        for shape1, shape2 in shape_combinations:
+            for relation in self.spatial_relations:
+                # Feature combinations
+                attribute_combinations = list(itertools.product(self.colors, self.hatches))
+                # Random initialization of features to iterate through for each comb
+                random.shuffle(attribute_combinations)
 
+                for i in range(samples_per_combination):
                     fig, ax = plt.subplots()
+
+                    color1, hatch1 = attribute_combinations[i % len(attribute_combinations)]
+                    color2, hatch2 = attribute_combinations[(i + 1) % len(attribute_combinations)]
+
                     shape1_size = random.uniform(0.2, 0.5)
                     shape1_pos = np.array([random.uniform(-0.3, 0.3), random.uniform(-0.3, 0.3)])
-                    shape2_pos, shape2_size = apply_spatial_relation(other_shape, shape, shape1_pos, shape1_size, spatial_relation)
+                    shape2_pos, shape2_size = apply_spatial_relation(shape2, shape1, shape1_pos, shape1_size, relation)
 
-                    draw_shape(ax, shape, color1, hatch1, shape1_pos, shape1_size)
-                    draw_shape(ax, other_shape, color2, hatch2, shape2_pos, shape2_size)
+                    draw_shape(ax, shape1, color1, hatch1, shape1_pos, shape1_size)
+                    draw_shape(ax, shape2, color2, hatch2, shape2_pos, shape2_size)
+
                     ax.set_xlim(-1.5, 1.5)
                     ax.set_ylim(-1.5, 1.5)
                     ax.axis('off')
 
                     fig.canvas.draw()
+
                     data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                     plt.close(fig)
 
-                    description = f"a {shape} {spatial_relation} a {other_shape}"
+                    description = f"a {shape1} {relation} a {shape2}"
                     dataset.append({"image": data, "description": description})
 
         return dataset
+
+
+# split_dataset function
+def split_dataset(dataset, val_size):
+  indices = list(range(len(dataset)))
+  train_indices, val_indices = train_test_split(indices, test_size=val_size, random_state=42)
+  return train_indices, val_indices
+
 
 
 # ReverseSVO for Diffusion
