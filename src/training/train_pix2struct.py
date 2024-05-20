@@ -55,7 +55,8 @@ def train_model(gpu_id, device, model):
     val_dataloader = DataLoader(val_dataset, batch_size=20, shuffle=False, collate_fn=collator)
 
     # Training loop
-    writer = SummaryWriter('runs/pix2struct_experiment_whatsup')
+    # writer = SummaryWriter('runs/pix2struct_experiment_whatsup')
+    writer = SummaryWriter('runs/pix2struct_experiment_2Dimage')
 
     EPOCHS = 5000
     patience = 5
