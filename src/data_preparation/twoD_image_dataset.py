@@ -110,15 +110,18 @@ def apply_spatial_relation(shape2, shape1, shape1_pos, shape1_size, spatial_rela
 
 
 # Class for balanced full dataset: no excluded combinations
+
 MAX_PATCHES = 1024
 class ShapeRelationDataset(Dataset):
     # Initialize dataset
-    def __init__(self, count, transforms=None, subset=False, indices=None):
+    def __init__(self, count, transforms=None, subset=False, indices=None, num_color=None, num_hatch=None):
         self.transforms = transforms
         self.subset = subset
         self.processor = processor
         # self.split = split
         self.indices = indices
+        self.colornum = num_color
+        self.hatchnum = num_hatch
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
         self.colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'pink', 'cyan']
         self.hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*', '']
@@ -164,7 +167,7 @@ class ShapeRelationDataset(Dataset):
         for shape1, shape2 in shape_combinations:
             for relation in self.spatial_relations:
                 # Feature combinations
-                attribute_combinations = list(itertools.product(self.colors, self.hatches))
+                attribute_combinations = list(itertools.product(self.colors[:self.colornum], self.hatches[:self.hatchnum]))
                 # Random initialization of features to iterate through for each comb
                 random.shuffle(attribute_combinations)
 
@@ -208,8 +211,10 @@ def split_dataset(dataset, val_size):
 # ReverseSVO for Diffusion
 
 class ReverseSVODataset(Dataset):
-    def __init__(self, count, transforms=None, held_out=False, held_out_set=None):
+    def __init__(self, count, transforms=None, held_out=False, held_out_set=None, num_color=None, num_hatch=None):
         self.transforms = transforms
+        self.colornum = num_color
+        self.hatchnum = num_hatch
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
         self.colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'pink', 'cyan']
         self.hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*', '']
@@ -255,7 +260,7 @@ class ReverseSVODataset(Dataset):
                     shape1, shape2 = shape2, shape1
 
                 # Feature combinations
-                attribute_combinations = list(itertools.product(self.colors, self.hatches))
+                attribute_combinations = list(itertools.product(self.colors[:self.colornum], self.hatches[:self.hatchnum]))
                 # Random initialization of features to iterate through for each comb
                 random.shuffle(attribute_combinations)
 
@@ -292,8 +297,10 @@ class ReverseSVODataset(Dataset):
 # New SO combo dataset: for diffusion
 
 class NewSODataset(Dataset):
-    def __init__(self, count, transforms=None, held_out=False, held_out_set=None):
+    def __init__(self, count, transforms=None, held_out=False, held_out_set=None, num_color=None, num_hatch=None):
         self.transforms = transforms
+        self.colornum = num_color
+        self.hatchnum = num_hatch
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
         self.colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'pink', 'cyan']
         self.hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*', '']
@@ -343,7 +350,7 @@ class NewSODataset(Dataset):
         for shape1, shape2 in final_combinations:
             for relation in self.spatial_relations:
                 # Feature combinations
-                attribute_combinations = list(itertools.product(self.colors, self.hatches))
+                attribute_combinations = list(itertools.product(self.colors[:self.colornum], self.hatches[:self.hatchnum]))
                 # Random initialization of features to iterate through for each comb
                 random.shuffle(attribute_combinations)
 
