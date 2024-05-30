@@ -31,12 +31,12 @@ def load_checkpoint(model, optimizer, checkpoint_path):
     epoch = checkpoint['epoch']
     return model, optimizer, epoch
 
-def train_model(gpu_id, device, model):
+def train_model(gpu_id, model, num_color=None, num_hatch=None):
     accumulation_steps = 4
     # full_train_dataset = HICO(split='train')
     # full_train_dataset = Whatsup(split='train')
     # full_train_indices = list(range(len(full_train_dataset)))
-    full_train_dataset = ShapeRelationDataset(count=1000)
+    full_train_dataset = ShapeRelationDataset(count=1344, num_color=num_color, num_hatch=num_hatch)
 
     # Split indices for training and validation
     # train_indices, val_indices = split_dataset(full_train_indices, val_size=0.2)
@@ -48,8 +48,8 @@ def train_model(gpu_id, device, model):
 
     # train_dataset = Whatsup(split='train', indices=train_indices)
     # val_dataset = Whatsup(split='train', indices=val_indices)
-    train_dataset = ShapeRelationDataset(count=1000, indices=train_indices)
-    val_dataset = ShapeRelationDataset(count=1000, indices=val_indices)
+    train_dataset = ShapeRelationDataset(count=1344, num_color=num_color, num_hatch=num_hatch, indices=train_indices)
+    val_dataset = ShapeRelationDataset(count=1344, num_color=num_color, num_hatch=num_hatch, indices=val_indices)
 
     train_dataloader = DataLoader(train_dataset, batch_size=20, shuffle=True, collate_fn=collator)
     val_dataloader = DataLoader(val_dataset, batch_size=20, shuffle=False, collate_fn=collator)
@@ -65,8 +65,8 @@ def train_model(gpu_id, device, model):
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-6)
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3)
 
-    # device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
-    device = device
+    device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+    # device = device
     model.to(device)
 
     for name, param in model.named_parameters():
