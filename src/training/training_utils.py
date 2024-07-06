@@ -23,8 +23,12 @@ def collator(batch):
   return new_batch
 
 def cycle_collator(batch):
-  new_batch = {"text":[], "image":[]}
-  texts = [item["text"] for item in batch]
+  # new_batch = {"text":[], "image":[]}
+  # texts = [item["text"] for item in batch]
+  # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  new_batch = {"label": [], "image": []}
+  labels = [item["label"] for item in batch]
+  # images = [item["image_original"] for item in batch]
   images = [item["image"] for item in batch]
   
   resolution = 64
@@ -39,13 +43,13 @@ def cycle_collator(batch):
         ]
     )
 
-
-
   rgb_images = [image.convert("RGB") for image in images]
   pixel_values = [train_transforms(image) for image in rgb_images]
 
+  # text_inputs = processor(text=labels, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48)
+  # new_batch["label"] = text_inputs.input_ids
 
-  new_batch["text"] = texts
+  new_batch["label"] = labels
   new_batch["image"] = torch.stack(pixel_values)
   
 

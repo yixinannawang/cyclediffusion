@@ -42,6 +42,14 @@ def save_checkpoint(model, epoch, optimizer, file_path):
         'optimizer_state_dict': optimizer.state_dict()
     }, file_path)
 
+def load_checkpoint(model, optimizer, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    return model, optimizer, epoch
+
+
 def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 1):
     scaler = GradScaler()
 
@@ -50,7 +58,19 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
     patience_counter = 0  # Initialize patience counter
     CHECKPOINT_PATH = "checkpoints"
     os.makedirs(CHECKPOINT_PATH, exist_ok=True)
+
+    # device = f"cuda" if torch.cuda.is_available() else "cpu"
+    # device = device
+    model.to()
     
+    if os.path.exists(os.path.join(CHECKPOINT_PATH, "best_model.pt")):
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(CHECKPOINT_PATH, "best_model.pt"))
+        print(f"Checkpoint loaded. Resuming training from epoch {start_epoch + 1}")
+    else:
+        start_epoch = 0
+        print("No checkpoint found. Starting training from scratch.")
+
+
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
@@ -58,7 +78,9 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
         train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(train_dataloader))
         for batch_idx, batch in train_progress:
             # get the structure of the batch
-            captions = batch["text"]
+            # captions = batch["text"]
+            # images = batch["image"]
+            captions = batch["label"]
             images = batch["image"]
 
             
@@ -98,7 +120,8 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
             with torch.no_grad():
                 for batch in val_dataloader:
                     data = batch
-                    captions = data["text"]
+                    # captions = data["text"]
+                    captions = data["label"]
                     with autocast():
                         outputs = model(captions)
                         loss = outputs.loss

@@ -206,13 +206,24 @@ def split_dataset(dataset, val_size):
   train_indices, val_indices = train_test_split(indices, test_size=val_size, random_state=42)
   return train_indices, val_indices
 
+class SubsetDataset:
+    def __init__(self, dataset, indices):
+        self.dataset = dataset
+        self.indices = indices
+    
+    def __len__(self):
+        return len(self.indices)
+    
+    def __getitem__(self, index):
+        return self.dataset[self.indices[index]]
 
 
 # ReverseSVO for Diffusion
 
 class ReverseSVODataset(Dataset):
-    def __init__(self, count, transforms=None, held_out=False, held_out_set=None, num_color=None, num_hatch=None):
+    def __init__(self, count, transforms=None, held_out=False, held_out_set=None, indices=None, num_color=None, num_hatch=None):
         self.transforms = transforms
+        self.processor = processor
         self.colornum = num_color
         self.hatchnum = num_hatch
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
@@ -222,20 +233,36 @@ class ReverseSVODataset(Dataset):
         self.held_out = held_out  # Whether this dataset should be the held-out set
         self.held_out_set = held_out_set
         self.data = self.generate_images_balanced(count)
+        self.indices = indices
+        if indices is not None:
+            self.data = [self.data[i] for i in indices]
 
+    # Get number of items in the dataset
     def __len__(self):
         return len(self.data)
 
+    # Retrieve an image and its corresponding caption by index
     def __getitem__(self, idx):
+
         item = self.data[idx]
         image_array = item['image']
-        description = item['description']
+        label = item['description']
 
+        # Convert the numpy array image to a PIL Image
         image = Image.fromarray((image_array * 255).astype(np.uint8))
+
+        # Any transforms
         if self.transforms:
             image = self.transforms(image)
 
-        return image, description
+        # image_tensor = transforms.ToTensor()(image)
+
+        encoding = self.processor(images=image, return_tensors="pt", add_special_tokens=True, max_patches=MAX_PATCHES)
+        encoding = {k:v.squeeze() for k,v in encoding.items()}
+        encoding["label"] = label
+        encoding["image"] = image
+
+        return encoding
 
     def generate_images_balanced(self, count):
         dataset = []
@@ -255,7 +282,7 @@ class ReverseSVODataset(Dataset):
 
         for shape1, shape2 in shape_combinations:
             for relation in self.spatial_relations:
-                if not self.held_out:
+                if self.held_out:
                     # For the held-out set, reverse the order
                     shape1, shape2 = shape2, shape1
 
@@ -297,8 +324,9 @@ class ReverseSVODataset(Dataset):
 # New SO combo dataset: for diffusion
 
 class NewSODataset(Dataset):
-    def __init__(self, count, transforms=None, held_out=False, held_out_set=None, num_color=None, num_hatch=None):
+    def __init__(self, count, transforms=None, indices=None, held_out=False, held_out_set=None, num_color=None, num_hatch=None):
         self.transforms = transforms
+        self.processor = processor
         self.colornum = num_color
         self.hatchnum = num_hatch
         self.shapes = ['triangle', 'square', 'rectangle', 'parallelogram', 'circle', 'ellipse', 'pentagon', 'hexagon']
@@ -308,20 +336,35 @@ class NewSODataset(Dataset):
         self.held_out = held_out  # Whether this dataset should be the held-out set
         self.held_out_set = held_out_set
         self.data = self.generate_images_balanced(count)
+        self.indices = indices
+        if indices is not None:
+            self.data = [self.data[i] for i in indices]
 
+    # Get number of items in the dataset
     def __len__(self):
         return len(self.data)
 
+    # Retrieve an image and its corresponding caption by index
     def __getitem__(self, idx):
+
         item = self.data[idx]
         image_array = item['image']
-        description = item['description']
+        label = item['description']
 
+        # Convert the numpy array image to a PIL Image
         image = Image.fromarray((image_array * 255).astype(np.uint8))
+
+        # Any transforms
         if self.transforms:
             image = self.transforms(image)
 
-        return image, description
+        encoding = self.processor(images=image, return_tensors="pt", add_special_tokens=True, max_patches=MAX_PATCHES)
+        encoding = {k:v.squeeze() for k,v in encoding.items()}
+        encoding["label"] = label
+        encoding["image_original"] = image
+
+        return encoding
+
 
     def generate_images_balanced(self, count):
         dataset = []

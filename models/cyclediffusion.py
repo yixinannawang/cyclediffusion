@@ -12,6 +12,7 @@ from accelerate.state import AcceleratorState
 from accelerate.utils import ProjectConfiguration, set_seed
 from tqdm import tqdm
 from collections import namedtuple
+
 # from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
 # Initialize processor and model
 class Captioner(nn.Module):
@@ -27,7 +28,7 @@ class Captioner(nn.Module):
         super(Captioner, self).__init__()
         self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(pix2struct_pretrained_model_name)
-        self.device = torch.device("cuda:1")
+        self.device = torch.device("cuda")
 
 
     def flatten_patches(self, intermediate_representations):
@@ -171,7 +172,7 @@ class Diffuser(nn.Module):
         self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
-        self.device = torch.device("cuda:0")
+        self.device = torch.device("cuda")
         self.train_pixel_loss = train_pixel_loss
         
 
@@ -351,9 +352,7 @@ class Diffuser(nn.Module):
         print("pixel_loss", pixel_loss) 
         return output_image, pixel_loss
     
-        
-
-
+    
         
     
     def train(self, mode=True):
@@ -396,14 +395,23 @@ class CycleDiffusionModel(nn.Module):
                  pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base",
                  #stable_diffusion_params = "stabilityai/stable-diffusion-2-base"
                     stable_diffusion_params = "OFA-Sys/small-stable-diffusion-v0",
+                    trained_captioner=False,
                     verbose = False,
+                    device = None,
                     device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
-                    device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+                    device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
                  ):
         super(CycleDiffusionModel, self).__init__()
-        self.captioner = Captioner(pix2struct_pretrained_model_name)
+        # fill in the trained captioner instead?
+        if trained_captioner:
+            checkpoint_path = 'checkpoints/2x2/best_model.pt'
+            self.captioner = load_model_checkpoint(self.captioner, checkpoint_path)
+            pass
+        else:
+            self.captioner = Captioner(pix2struct_pretrained_model_name)
         self.device0 = device0
         self.device1 = device1
+        self.device = device
         self.diffuser = Diffuser(model_id=stable_diffusion_params, train_pixel_loss=True)
         self.verbose = verbose
 
@@ -411,7 +419,8 @@ class CycleDiffusionModel(nn.Module):
         torch.cuda.empty_cache()
 
         intermediate_representations, pixel_loss = self.diffuser(captions=captions, images=images)
-        intermediate_representations = intermediate_representations.to(self.device1)
+        # intermediate_representations = intermediate_representations.to(self.device1)
+        intermediate_representations = intermediate_representations.to(self.device)
         if self.verbose:
             print("cyclediff forward")
             print ("intermediate_representations", intermediate_representations)
@@ -448,14 +457,26 @@ class CycleDiffusionModel(nn.Module):
         else:
             self.diffuser.to(self.device0)
             self.captioner.to(self.device1)
+            # self.diffuser.to(self.device)
+            # self.captioner.to(self.device)
         
         return self
     
+    def to(self):
+        # self.diffuser.to(self.device0)
+        # self.captioner.to(self.device1)
+        self.diffuser.to(self.device)
+        self.captioner.to(self.device)
+        return self
+
     # when i call model.parameters(), it should return only the diffuser's unet's parameters
     def parameters(self, recurse: bool = True):
         return self.diffuser.unet.parameters(recurse)
 
 
-
+def load_model_checkpoint(model, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    return model
 
 
