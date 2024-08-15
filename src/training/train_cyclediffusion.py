@@ -50,7 +50,7 @@ def load_checkpoint(model, optimizer, checkpoint_path):
     return model, optimizer, epoch
 
 
-def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 1):
+def train_cyclediff(model, condition, labels_A, optimizer, train_dataloader, val_dataloader, epochs=5, patience=3, accumulation_steps = 1):
     scaler = GradScaler()
 
     writer = SummaryWriter('runs/cyclediff')
@@ -72,29 +72,75 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
 
 
     for epoch in range(epochs):
+
         model.train()
         total_loss = 0.0
         optimizer.zero_grad()
         train_progress = tqdm.tqdm(enumerate(train_dataloader), total=len(train_dataloader))
+
         for batch_idx, batch in train_progress:
             # get the structure of the batch
-            # captions = batch["text"]
-            # images = batch["image"]
             captions = batch["label"]
             images = batch["image"]
 
-            
             # writer.add_graph(model, input_to_model=text_embeddings)
+            # with autocast():
+            #     outputs, pixel_loss = model(captions=captions, images=images)
+            #     print(f"output and pixel loss: {outputs.loss}, {pixel_loss}")
+            #     loss = outputs.loss + pixel_loss
+
             with autocast():
-                outputs, pixel_loss = model(captions=captions, images=images)
-                print(f"output and pixel loss: {outputs.loss}, {pixel_loss}")
-                loss = outputs.loss + pixel_loss
-           
+                # Set the loss components based on the condition
+                if condition == 1:
+                    model.use_caption_loss = False
+                    output, pixel_loss = model(captions=captions, images=images)
+                    loss = pixel_loss 
+                elif condition == 2:
+                    model.use_caption_loss = True
+                    output, pixel_loss = model(captions=captions, images=images)
+                    loss = pixel_loss + output.loss
+                elif condition == 3:
+                    # Deal with diff loss components 
+                    # Handle mixed conditions within the loop
+                    # Batch size = 1: only process one pair of image & caption one time; 
+                    # # needs further modification if batch size increases (may have to be dividable for length of subset A/B)
+
+                    # for caption, image in zip(captions, images):
+
+                        if is_prompt_from_A(caption=captions, caption_list=labels_A):
+                            model.use_caption_loss = True
+                            normalization_factor = 2
+                            output, pixel_loss = model(captions=captions, images=images)
+                            loss = pixel_loss + output.loss
+                        else:  # is_prompt_from_B
+                            model.use_caption_loss = True
+                            normalization_factor = 1
+                            output, pixel_loss = model(captions=captions, images=images)
+                            loss = output.loss # only caption loss here
+                        loss /= normalization_factor
+                        continue
+                elif condition == 4:
+                    # Only pixel_loss for prompts from B
+                    # for caption, image in zip(captions, images):
+                        caption = torch.tensor([caption])  # Add batch dimension
+                        image = image.unsqueeze(0)
+                        if is_prompt_from_A(caption=captions, caption_list=labels_A):
+                            model.use_caption_loss = True
+                            normalization_factor = 2
+                        else:  # is_prompt_from_B
+                            model.use_caption_loss = False
+                            normalization_factor = 1
+                        output = model(captions=caption, images=image)
+                        loss = output.pixel_loss
+                        if model.use_caption_loss:
+                            loss += output.caption_loss
+                        loss /= normalization_factor
+                        continue
+            
             print(f"Loss: {loss.item()}")
             # Backward pass
             scaler.scale(loss).backward()
             # log gradients
-            
             
             # Gradient accumulation
             if (batch_idx + 1) % accumulation_steps == 0:
@@ -144,8 +190,8 @@ def train_cyclediff(model, optimizer, train_dataloader, val_dataloader, epochs=5
     writer.close()
 
 
-
-
+def is_prompt_from_A(caption, caption_list):
+    return caption in caption_list
 
 
 if __name__ == "__main__":

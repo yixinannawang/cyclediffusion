@@ -1,4 +1,4 @@
-from turtle import mode
+# from turtle import mode
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
@@ -395,20 +395,19 @@ class CycleDiffusionModel(nn.Module):
                  pix2struct_pretrained_model_name = "google/pix2struct-textcaps-base",
                  #stable_diffusion_params = "stabilityai/stable-diffusion-2-base"
                     stable_diffusion_params = "OFA-Sys/small-stable-diffusion-v0",
-                    trained_captioner=False,
+                    use_caption_loss=False,
+                    only_caption_loss=False,
                     verbose = False,
                     device = None,
                     device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
                     device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
                  ):
         super(CycleDiffusionModel, self).__init__()
-        # fill in the trained captioner instead?
-        if trained_captioner:
-            checkpoint_path = 'checkpoints/2x2/best_model.pt'
-            self.captioner = load_model_checkpoint(self.captioner, checkpoint_path)
-            pass
-        else:
-            self.captioner = Captioner(pix2struct_pretrained_model_name)
+        # Initialize w trained captioner 
+        checkpoint_path = 'checkpoints/2x2_reverse/best_model.pt'
+        self.captioner = load_model_checkpoint(Captioner(pix2struct_pretrained_model_name), checkpoint_path)
+        self.use_caption_loss = use_caption_loss
+        self.only_caption_loss = only_caption_loss
         self.device0 = device0
         self.device1 = device1
         self.device = device
@@ -426,15 +425,18 @@ class CycleDiffusionModel(nn.Module):
             print ("intermediate_representations", intermediate_representations)
             print("pixel_loss", pixel_loss)
 
-        
-        
         reconstructed_caption = self.captioner(captions=captions, intermediate_representations=intermediate_representations)
         if self.verbose:
             print("reconstructed_caption", reconstructed_caption)
             print("reconstructed_caption items", reconstructed_caption.items())
         
+        # Enable caption loss
+        caption_loss = 0.0
+        if self.use_caption_loss:
+            caption_loss = reconstructed_caption.loss
+
         Output = namedtuple("Output", ["loss", "logits", "encoder_last_hidden_state"])
-        output = Output(reconstructed_caption.loss, reconstructed_caption.logits, reconstructed_caption.encoder_last_hidden_state)
+        output = Output(caption_loss, reconstructed_caption.logits, reconstructed_caption.encoder_last_hidden_state)
         return output, pixel_loss
 
     def train(self, mode=True):
@@ -476,7 +478,7 @@ class CycleDiffusionModel(nn.Module):
 
 def load_model_checkpoint(model, checkpoint_path):
     checkpoint = torch.load(checkpoint_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
     return model
 
 

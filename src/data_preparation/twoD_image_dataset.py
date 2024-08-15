@@ -218,6 +218,19 @@ class SubsetDataset:
         return self.dataset[self.indices[index]]
 
 
+def combine_datasets_reverse(dataset1, dataset2):
+    combined_data = dataset1.data + dataset2.data
+    combined_dataset = ReverseSVODataset(count=0)
+    combined_dataset.data = combined_data
+    return combined_dataset
+
+def combine_datasets_newSO(dataset1, dataset2):
+    combined_data = dataset1.data + dataset2.data
+    combined_dataset = NewSODataset(count=0)
+    combined_dataset.data = combined_data
+    return combined_dataset
+
+
 # ReverseSVO for Diffusion
 
 class ReverseSVODataset(Dataset):
@@ -269,7 +282,7 @@ class ReverseSVODataset(Dataset):
         # Calculate all combinations: ensure order is the same for the purpose of dividing held-outs
         random.seed(42)
         shape_combinations = list(itertools.combinations(self.shapes, 2))
-        total_combinations = len(shape_combinations) * len(self.spatial_relations)
+        total_combinations = len(list(itertools.permutations(self.shapes, 2))) * len(self.spatial_relations)
         # Balance across combinations
         samples_per_combination = count // total_combinations
 
@@ -376,7 +389,7 @@ class NewSODataset(Dataset):
                                  ('rectangle', 'hexagon'), ('hexagon', 'rectangle'), ('circle', 'pentagon'), ('pentagon', 'circle')]
         filtered_combinations = [combo for combo in shape_combinations
                         if combo not in excluded_combinations]
-        total_combinations = len(filtered_combinations) * len(self.spatial_relations)
+        total_combinations = len(shape_combinations) * len(self.spatial_relations)
         # Balance across combinations
         samples_per_combination = count // total_combinations
 
