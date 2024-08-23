@@ -29,7 +29,7 @@ class Captioner(nn.Module):
         super(Captioner, self).__init__()
         self.model = Pix2StructForConditionalGeneration.from_pretrained(pix2struct_pretrained_model_name)
         self.processor = AutoProcessor.from_pretrained(pix2struct_pretrained_model_name)
-        self.device = torch.device("cuda")
+        # self.device = torch.device("cuda")
 
 
     def flatten_patches(self, intermediate_representations):
@@ -87,8 +87,8 @@ class Captioner(nn.Module):
 
         # Prepare additional patch features.
         # [rows * columns, 1]
-        row_ids = row_ids.to(torch.float32).to(self.device)
-        col_ids = col_ids.to(torch.float32).to(self.device)
+        row_ids = row_ids.to(torch.float32) #.to(self.device)
+        col_ids = col_ids.to(torch.float32) #.to(self.device)
 
         # [rows * columns, 2 + patch_height * patch_width * image_channels]
         result = torch.cat([row_ids, col_ids, patches], -1)
@@ -101,7 +101,7 @@ class Captioner(nn.Module):
        
 
         # Create attention mask
-        attention_mask = (torch.sum(flattened_patches, dim=-1) != 0).to(self.device)
+        attention_mask = (torch.sum(flattened_patches, dim=-1) != 0) #.to(self.device)
         # print("flattened_patches", flattened_patches.shape)
         # print("attention_mask", attention_mask.shape)
 
@@ -118,7 +118,7 @@ class Captioner(nn.Module):
             intermediate_representations (torch.Tensor): The intermediate representations of the image. (C, H, W)
         """
         
-        labels = self.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids.to(self.device)
+        labels = self.processor(text=captions, padding="max_length", return_tensors="pt", add_special_tokens=True, max_length=48).input_ids #.to(self.device)
         flattened_patches, attention_mask = self.flatten_patches(intermediate_representations)
         model_outputs = self.model(flattened_patches=flattened_patches, attention_mask=attention_mask, labels=labels)
         # if self.verbose:
@@ -139,10 +139,13 @@ class Captioner(nn.Module):
             param.requires_grad = False
         return self
     
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.model.to(*args, **kwargs)
-        self.device = args[0]
+    # def to(self, *args, **kwargs):
+    #     super().to(*args, **kwargs)
+    #     self.model.to(*args, **kwargs)
+    #     self.device = args[0]
+    #     return self
+    def to(self, device):
+        self.model.to(device)
         return self
     
 
@@ -173,7 +176,7 @@ class Diffuser(nn.Module):
         self.vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet")
-        self.device = torch.device("cuda")
+        # self.device = torch.device("cuda")
         self.train_pixel_loss = train_pixel_loss
         
 
@@ -192,8 +195,9 @@ class Diffuser(nn.Module):
         batch_size = images.shape[0]
         # num_images_per_prompt = 1
         num_inference_steps = 5
-
         pixel_loss = 0.0
+
+        device = next(self.parameters()).device
         
         # 0. Default height and width to unet
         height = self.unet.config.sample_size * self.vae_scale_factor
@@ -228,8 +232,8 @@ class Diffuser(nn.Module):
 
         # 1. Encode input
         text_inputs = self.tokenizer(captions, return_tensors="pt", padding=True, truncation=True, max_length=16)
-        text_input_ids = text_inputs.input_ids.to(self.device)  # Move to GPU as soon as possible
-        attention_mask = text_inputs.attention_mask.to(self.device)
+        text_input_ids = text_inputs.input_ids.to(device)  # Move to GPU as soon as possible
+        attention_mask = text_inputs.attention_mask.to(device)
         text_embeddings = self.text_encoder(input_ids=text_input_ids, attention_mask=attention_mask)[0]
         encoder_hidden_states = self.text_encoder(text_input_ids, return_dict=False)[0]
         # duplicate text embeddings for each generation per prompt, using mps friendly method
@@ -241,7 +245,7 @@ class Diffuser(nn.Module):
         if self.train_pixel_loss:
             # encode the image into latents
 
-            pixel_values = images.to(self.device)
+            pixel_values = images.to(device)
             image_latents = self.vae.encode(pixel_values.to(torch.float32)).latent_dist.sample()
             image_latents = image_latents * self.vae_scale_factor
 
@@ -294,19 +298,18 @@ class Diffuser(nn.Module):
 
 
         # 2. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
+        self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
         
 
         # 3. Prepare latent
         num_channels_latents = self.unet.config.in_channels
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
-        latents = torch.randn(shape, generator=None, device=self.device, dtype=torch.float32).to(self.device)
+        latents = torch.randn(shape, generator=None, device=device, dtype=torch.float32).to(device)
         # quantization
-        latents = torch.quantize_per_tensor(latents, scale=0.1, zero_point=0, dtype=torch.qint8)
+        # latents = torch.quantize_per_tensor(latents, scale=0.1, zero_point=0, dtype=torch.qint8)
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.scheduler.init_noise_sigma
-
         
 
         # 4. Prepare extra step kwargs
@@ -337,7 +340,7 @@ class Diffuser(nn.Module):
         # 6. Generate image
         latents = 1 / self.scheduler.init_noise_sigma * latents # 0.18215
         
-        distribution = self.vae.decode(latents.to(self.device))
+        distribution = self.vae.decode(latents.to(device))
         output_image = distribution.sample
         output_image = (output_image / 2 + 0.5).clamp(0, 1)
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
@@ -378,12 +381,17 @@ class Diffuser(nn.Module):
 
         return self
     
-    def to(self, *args, **kwargs):
-        super().to(*args, **kwargs)
-        self.unet.to(*args, **kwargs)
-        self.text_encoder.to(*args, **kwargs)
-        self.vae.to(*args, **kwargs)
-        self.device = args[0]
+    # def to(self, *args, **kwargs):
+    #     super().to(*args, **kwargs)
+    #     self.unet.to(*args, **kwargs)
+    #     self.text_encoder.to(*args, **kwargs)
+    #     self.vae.to(*args, **kwargs)
+    #     self.device = args[0]
+    #     return self
+    def to(self, device):
+        self.text_encoder.to(device)
+        self.vae.to(device)
+        self.unet.to(device)
         return self
 
 
@@ -402,8 +410,8 @@ class CycleDiffusionModel(nn.Module):
                     only_caption_loss=False,
                     verbose = False,
                     # device = None,
-                    device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
-                    device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
+                    # device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+                    # device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
                  ):
         super(CycleDiffusionModel, self).__init__()
         # Initialize w trained captioner 
@@ -411,8 +419,8 @@ class CycleDiffusionModel(nn.Module):
         self.captioner = load_model_checkpoint(Captioner(pix2struct_pretrained_model_name), checkpoint_path)
         self.use_caption_loss = use_caption_loss
         self.only_caption_loss = only_caption_loss
-        self.device0 = device0
-        self.device1 = device1
+        # self.device0 = device0
+        # self.device1 = device1
         # self.device = device
         self.diffuser = Diffuser(model_id=stable_diffusion_params, train_pixel_loss=True)
         self.verbose = verbose
@@ -421,7 +429,7 @@ class CycleDiffusionModel(nn.Module):
         torch.cuda.empty_cache()
 
         intermediate_representations, pixel_loss = self.diffuser(captions=captions, images=images)
-        intermediate_representations = intermediate_representations.to(self.device1)
+        intermediate_representations = intermediate_representations
         # intermediate_representations = intermediate_representations.to(self.device)
         if self.verbose:
             print("cyclediff forward")
@@ -464,14 +472,17 @@ class CycleDiffusionModel(nn.Module):
             self.captioner.to(self.device1)
             # self.diffuser.to(self.device)
             # self.captioner.to(self.device)
-        
         return self
     
-    def to(self):
-        self.diffuser.to(self.device0)
-        self.captioner.to(self.device1)
-        # self.diffuser.to(self.device)
-        # self.captioner.to(self.device)
+    # def to(self):
+    #     self.diffuser.to(self.device0)
+    #     self.captioner.to(self.device1)
+    #     # self.diffuser.to(self.device)
+    #     # self.captioner.to(self.device)
+    #     return self
+    def to(self, device):
+        self.captioner.to(device)
+        self.diffuser.to(device)
         return self
 
     # when i call model.parameters(), it should return only the diffuser's unet's parameters
